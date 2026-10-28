@@ -1,7 +1,8 @@
 import { zeroAddress } from 'viem'
 import type { Address } from 'viem'
 
-import { LISTED_FACTORIES, FACTORY_ABI, HOOK_ABI, ERC20_ABI } from '@/lib/contracts'
+import { ERC20_ABI } from '@/lib/contracts'
+import { V2_FACTORY_ABI, V2_HOOK_ABI } from '@/lib/v2/abis'
 import { V2_FACTORIES } from '@/lib/v2/config'
 import { targetChain } from '@/lib/chain'
 import { serverPublicClient } from '@/app/lib/serverRpc'
@@ -88,13 +89,13 @@ async function getProjectFromChain(tokenOrHook: string): Promise<ProjectLookup> 
     const client = serverPublicClient()
     const addr = tokenOrHook as Address
 
-    // Current factory first, then each retired one still listed. A token is
-    // registered on exactly one, so the first non-zero answer is the answer.
+    // A token is registered on exactly one factory, so the first non-zero
+    // answer is the answer.
     let hookFromToken: Address = zeroAddress
-    for (const factory of [...LISTED_FACTORIES, ...V2_FACTORIES]) {
+    for (const factory of V2_FACTORIES) {
       hookFromToken = await client.readContract({
         address: factory,
-        abi: FACTORY_ABI,
+        abi: V2_FACTORY_ABI,
         functionName: 'tokenToHook',
         args: [addr],
       }) as Address
@@ -109,7 +110,7 @@ async function getProjectFromChain(tokenOrHook: string): Promise<ProjectLookup> 
       try {
         const maybeToken = await client.readContract({
           address: addr,
-          abi: HOOK_ABI,
+          abi: V2_HOOK_ABI,
           functionName: 'projectToken',
         }) as Address
         if (maybeToken && maybeToken !== zeroAddress) {
@@ -125,14 +126,14 @@ async function getProjectFromChain(tokenOrHook: string): Promise<ProjectLookup> 
       // A spoof can implement `projectToken`. Only a factory's `registeredHooks`
       // map is write-once at `createLaunch`, so ask that rather than the hook.
       if (hook !== zeroAddress) {
-        const factories = [...LISTED_FACTORIES, ...V2_FACTORIES]
+        const factories = V2_FACTORIES
         let seen = false
         let failed = 0
         for (const factory of factories) {
           try {
             const ok = await client.readContract({
               address: factory,
-              abi: FACTORY_ABI,
+              abi: V2_FACTORY_ABI,
               functionName: 'registeredHooks',
               args: [hook],
             }) as boolean

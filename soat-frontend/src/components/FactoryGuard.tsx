@@ -2,11 +2,11 @@
 
 import { useBytecode } from 'wagmi'
 import {
-  FACTORY_ADDRESS,
   TARGET_CHAIN_ID,
   ACTIVE_CHAIN_LABEL,
   testnetExplorerAddress,
 } from '@/lib/contracts'
+import { V2_BIDBOOK } from '@/lib/v2/config'
 import { useIsHydrated } from '@/components/ui'
 
 /**
@@ -43,8 +43,9 @@ export function FactoryGuard() {
   const hydrated = useIsHydrated()
 
   const { data: bytecode, isLoading, isError } = useBytecode({
-    address: FACTORY_ADDRESS,
+    address: V2_BIDBOOK,
     query: {
+      enabled: V2_BIDBOOK !== undefined,
       // An address either holds code or it does not, and on a chain that has
       // finalised that answer does not change. Retry once for transport, then
       // stop — a wrong address must not generate traffic forever.
@@ -58,22 +59,22 @@ export function FactoryGuard() {
   // `isError` is transport, not a verdict — an unreachable RPC says nothing
   // about whether the factory exists, and claiming otherwise would put a false
   // alarm on the page every time a public endpoint rate-limits.
-  if (!hydrated || isLoading || isError) return null
+  if (!hydrated || !V2_BIDBOOK || isLoading || isError) return null
 
   const hasCode = typeof bytecode === 'string' && bytecode !== '0x'
   if (hasCode) return null
 
-  const explorer = testnetExplorerAddress(FACTORY_ADDRESS)
+  const explorer = testnetExplorerAddress(V2_BIDBOOK)
 
   return (
     <div className="border-b border-danger/20 bg-danger/5 px-4 py-2">
       <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
         <p className="text-note font-mono text-danger tracking-wide">
-          No contract at the configured factory{' '}
-          <span className="font-bold">{FACTORY_ADDRESS}</span> on{' '}
+          No contract at the configured bid book{' '}
+          <span className="font-bold">{V2_BIDBOOK}</span> on{' '}
           {ACTIVE_CHAIN_LABEL} (chain {TARGET_CHAIN_ID}). Every on-chain value on
           this page will read blank until{' '}
-          <span className="font-bold">NEXT_PUBLIC_FACTORY_ADDRESS</span> points
+          <span className="font-bold">NEXT_PUBLIC_V2_BIDBOOK</span> points
           at a deployment. A variable of that name exported in the shell
           outranks <span className="font-bold">.env.local</span>.
         </p>

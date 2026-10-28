@@ -137,7 +137,7 @@ vi.mock('viem', async (importOriginal) => {
 vi.mock('@/lib/observability', () => ({ reportError: () => {} }))
 
 beforeEach(() => {
-  vi.stubEnv('NEXT_PUBLIC_FACTORY_ADDRESS', '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0')
+  vi.stubEnv('NEXT_PUBLIC_V2_FACTORY_BNB', '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0')
   vi.stubEnv('NEXT_PUBLIC_CHAIN_ID', '31337')
   vi.stubEnv('UPSTASH_REDIS_REST_URL', undefined as unknown as string)
   anonInserts = 0

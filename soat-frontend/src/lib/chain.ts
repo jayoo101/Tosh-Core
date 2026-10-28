@@ -1,14 +1,11 @@
-import type { Address, Chain } from 'viem'
+import type { Chain } from 'viem'
 import { bsc, bscTestnet, foundry } from 'viem/chains'
 
 /**
  * Settlement chain the UI talks to.
  *
- * `NEXT_PUBLIC_CHAIN_ID` is the switch.  `CL_POOL_MANAGER` stays a source-code
- * constant in `contracts.ts` (a wrong one hashes every `PoolKey` to a pool that
- * was never initialised); everything else — periphery addresses, explorer URLs,
- * wagmi's chain list — follows this id so a mainnet cutover is env, not a rebuild
- * of the UI.
+ * `NEXT_PUBLIC_CHAIN_ID` is the switch. Explorer URLs and wagmi's chain list
+ * follow this id, so a mainnet cutover is env, not a rebuild of the UI.
  *
  * The default is the PUBLIC TESTNET, chain 97, and it has been all three of
  * these in turn. Recording why, because the reasoning inverted once and would
@@ -60,8 +57,7 @@ const CHAINS_BY_ID: Record<number, Chain> = {
  * nobody had registered produced a working UI pointed at a *different chain*
  * than the operator asked for — silently, with the wrong explorer links and the
  * wrong periphery addresses, and no way to notice short of reading a block
- * number. That is the same failure `envAddress` was rewritten to eliminate (see
- * its comment below): a fallback that is indistinguishable from success.
+ * number: a fallback that is indistinguishable from success.
  *
  * A boot-time throw is loud, immediate, and impossible to ship past.
  */
@@ -77,55 +73,6 @@ function resolveTargetChain(): Chain {
 }
 
 export const targetChain: Chain = resolveTargetChain()
-
-/**
- * Chains the Proof-of-Gas signing path accepts.
- *
- * The local devnet is included only when this is NOT a production build. It used
- * to be unconditional, so a deployed production build accepted `chainId: 31337`
- * and carried the request all the way to an RPC attempt against loopback before
- * failing 503. That fails closed, and the attestation digest binds
- * `block.chainid` so a 31337-bound signature is unusable on the target — but it
- * is a chain the deployment can never serve, reached through the oracle's own
- * signing path, and "the only thing stopping it is that nothing listens on
- * localhost" is not a control.
- *
- * `next build` sets `NODE_ENV=production` for a testnet deployment too, which is
- * the wanted behaviour: a deployed testnet build has no loopback node either. A
- * developer running `next dev` against the public testnet keeps the devnet.
- *
- * That last sentence is now about the ROUTE and not about the UI. `providers.tsx`
- * registers only the target chain, so a `next dev` build pointed at the testnet
- * no longer follows a wallet onto 31337 — the wrong-network verdict fires first
- * and the signing path is never reached. The entry survives so that the API
- * route stays callable directly during local work; it is not a way into the UI.
- *
- * Exported only as a predicate, and the list is not exported, because this
- * decision used to be written twice — here, and again inline in
- * `onchainNonce.ts` as `chainId !== TARGET_CHAIN_ID && chainId !== FOUNDRY_CHAIN_ID`.
- * Two copies of one allowlist is the shape that let the PoG deadline drift; see
- * the PoG deadline drift in SECURITY.md.
- */
-const SUPPORTED_POG_CHAIN_IDS: readonly number[] =
-  process.env.NODE_ENV !== 'production' && TARGET_CHAIN_ID !== FOUNDRY_CHAIN_ID
-    ? [TARGET_CHAIN_ID, FOUNDRY_CHAIN_ID]
-    : [TARGET_CHAIN_ID]
-
-/**
- * Takes `number | undefined` and narrows, because the callers now read the
- * wallet's chain rather than the config's and a disconnected wallet reports
- * none. "No chain" is not supported, which is the same answer as "the wrong
- * chain" and wants the same branch — forcing a `?? 0` at each call site would
- * only have invented a chain id to reject.
- */
-export function isSupportedPogChain(chainId: number | undefined): chainId is number {
-  return chainId !== undefined && SUPPORTED_POG_CHAIN_IDS.includes(chainId)
-}
-
-/** For error messages that need to name what IS accepted. */
-export function supportedPogChainLabel(): string {
-  return SUPPORTED_POG_CHAIN_IDS.join(', ')
-}
 
 /**
  * The chain Tosh settles on — a positioning statement, NOT where this build is
@@ -150,13 +97,7 @@ export const MAINNET_CHAIN_LABEL = 'BNB Smart Chain'
  * wallet is actually spending. On 31337 that yields "ETH", and that is correct
  * rather than a leak: Foundry's devnet coin IS ether, and a devnet build should
  * say so.
- *
- * ⚠ NOT for the Proof-of-Gas floor. `band.floorWei` measures gas burned on
- *   ETH-settled chains and stays denominated in ETH on purpose — see
- *   `pogQuota.ts`. Copy about lifetime gas must keep saying ETH, and using this
- *   constant there would state a falsehood the ×3.5 rescale was careful to avoid.
- *   The two currencies now coexist on the same screen; that is the design, not an
- *   oversight, and `scripts/checkChainCopy.mjs` guards the boundary.
+
  */
 export const NATIVE_SYMBOL = targetChain.nativeCurrency.symbol
 
@@ -301,35 +242,4 @@ export function testnetExplorerTx(hash: string): string | undefined {
 export function testnetExplorerAddress(addr: string): string | undefined {
   const base = explorerBase()
   return base && `${base}/address/${addr}`
-}
-
-/**
- * Validate an override read from the environment, falling back when it is
- * absent or malformed.
- *
- * Takes the VALUE, not the variable name, and that is the whole point. This
- * used to take a name and do `process.env[name]`, which never worked in the
- * browser: Next.js inlines `NEXT_PUBLIC_*` by substituting the literal text
- * `process.env.NEXT_PUBLIC_FOO`, so a computed member access is not a
- * substitution target and `process.env` is simply an empty object on the
- * client. Every override silently resolved to `fallback`.
- *
- * That failed in the worst possible way. The fallbacks ARE the testnet
- * addresses, so nothing looked wrong until the one deploy where it mattered:
- * an operator who correctly set `NEXT_PUBLIC_POSITION_MANAGER` for the mainnet
- * cutover (PM-B4) would have shipped a build whose LP panel still encoded
- * calls to the Sepolia PositionManager. No runtime assertion could have caught
- * it — the value is gone at build time, not at run time.
- *
- * So call sites must write the access out in full:
- *
- *     envAddress(process.env.NEXT_PUBLIC_POSITION_MANAGER, FALLBACK)
- *
- * and not hand this function a name to look up.
- */
-export function envAddress(value: string | undefined, fallback: Address): Address {
-  if (typeof value === 'string' && /^0x[0-9a-fA-F]{40}$/.test(value.trim())) {
-    return value.trim() as Address
-  }
-  return fallback
 }

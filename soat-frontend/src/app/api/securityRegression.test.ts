@@ -102,7 +102,7 @@ vi.mock('viem', async (importOriginal) => {
 })
 
 beforeEach(() => {
-  vi.stubEnv('NEXT_PUBLIC_FACTORY_ADDRESS', '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0')
+  vi.stubEnv('NEXT_PUBLIC_V2_FACTORY_BNB', '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0')
   vi.stubEnv('NEXT_PUBLIC_CHAIN_ID', '31337')
   vi.stubEnv('UPSTASH_REDIS_REST_URL', '')
   vi.stubEnv('UPSTASH_REDIS_REST_TOKEN', '')
@@ -134,26 +134,6 @@ async function uploadLogo(bytes: Uint8Array, ip = freshIp(), declaredType = 'ima
 const realPng = async (shade = 0) => new Uint8Array(
   await sharp({ create: { width: 4, height: 4, channels: 3, background: { r: shade, g: 0, b: 0 } } }).png().toBuffer(),
 )
-
-describe('v1 routes are closed once v2 is configured', () => {
-  it('pog-scan, sign-allocation, ref and admin/config answer 404', async () => {
-    vi.stubEnv('NEXT_PUBLIC_V2_BIDBOOK', '0x00000000000000000000000000000000000000b1')
-    vi.stubEnv('NEXT_PUBLIC_V2_LENS', '0x00000000000000000000000000000000000000b2')
-    const post = (url: string) => new NextRequest(url, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
-    })
-    const scan = await import('@/app/api/pog-scan/route')
-    const sign = await import('@/app/api/sign-allocation/route')
-    const ref = await import('@/app/api/ref/route')
-    const config = await import('@/app/api/admin/config/route')
-    expect((await scan.POST(post('https://tosh.test/api/pog-scan'))).status).toBe(404)
-    expect((await scan.GET(new NextRequest('https://tosh.test/api/pog-scan?address=0x1'))).status).toBe(404)
-    expect((await sign.POST(post('https://tosh.test/api/sign-allocation'))).status).toBe(404)
-    expect((await ref.POST(post('https://tosh.test/api/ref'))).status).toBe(404)
-    expect((await ref.GET(new NextRequest('https://tosh.test/api/ref?code=abc'))).status).toBe(404)
-    expect((await config.POST(post('https://tosh.test/api/admin/config'))).status).toBe(404)
-  })
-})
 
 describe('the rate limiter counts an IPv6 /64 as one caller', () => {
   it('rotating the interface id no longer buys a fresh bucket', async () => {
@@ -263,17 +243,6 @@ describe('a Safe creator publishes as the Safe', () => {
   it('still accepts the developer the hook was deployed for', async () => {
     recovered = DEVELOPER
     expect((await publish({})).status).toBe(200)
-  })
-})
-
-describe('the admin config message names its deployment', () => {
-  it('signs the chain and the factory', async () => {
-    const { buildAdminConfigMessage } = await import('@/lib/adminConfigMessage')
-    const msg = buildAdminConfigMessage({
-      chainId: 56, factory: '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0', rate: 0.5, nonce: 1n, expiresAt: 2,
-    })
-    expect(msg).toContain('chainId:     56\n')
-    expect(msg).toContain('factory:     0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0\n')
   })
 })
 

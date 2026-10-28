@@ -14,8 +14,8 @@ name: Soak
 permissions: {}
 
 on:
-  # Daily, and offset from both the hour and the busy top-of-hour slot for the
-  # same reason watch.yml is: scheduled workflows queue on a shared pool and
+  # Daily, and offset from both the hour and the busy top-of-hour slot:
+  # scheduled workflows queue on a shared pool and
   # `0 * * * *` is its worst minute. 05:23 UTC is off-peak for this pool and
   # nobody is waiting on the result, which is the whole point of running it here
   # rather than on the push path.
@@ -26,15 +26,14 @@ on:
   # a PRIVATE repository whose Actions budget is $0 with "stop usage" set refuses
   # to run rather than bill, and the resulting annotation names a failed payment
   # first, which is not what had happened. Daily was ~1,420 of those minutes at
-  # the measured 47m14s per run, against ~720 for watch.yml and the rest on
-  # push-triggered CI.
+  # the measured 47m14s per run, with the rest on push-triggered CI.
   #
   # This repository is public, and GitHub does not bill standard-runner minutes
   # for public repositories at all, so the ceiling that forced weekly no longer
   # exists. Restoring daily buys seven times the search for nothing. The trade
   # reverses the moment the repository goes private — that decision has to come
   # back here, because the same 1,420 min/month lands on a 2,000-minute
-  # allowance that watch.yml is already spending half of.
+  # allowance.
   #
   # The depths below are untouched, as they were through both changes. Only how
   # often they run has ever moved, because nobody is waiting on a soak.
@@ -67,8 +66,8 @@ on:
         type: string
 
 # A soak has no state and nothing downstream, so a second one starting is only
-# ever waste. Cancelled rather than queued, the opposite of watch.yml, because
-# there is no checkpoint here for a cancelled run to leave unscanned.
+# ever waste. Cancelled rather than queued, because there is no checkpoint here
+# for a cancelled run to leave unscanned.
 concurrency:
   group: soak
   cancel-in-progress: true
@@ -84,8 +83,8 @@ jobs:
     # read the repository — and `actions/checkout` reports that 403 as
     # "repository 'https://github.com/<owner>/<repo>/' not found", which reads
     # like a typo in the URL rather than a missing scope. The first dispatch of
-    # this workflow failed exactly that way. Read-only on purpose: unlike
-    # watch.yml there is no checkpoint branch to push.
+    # this workflow failed exactly that way. Read-only on purpose: there is
+    # nothing to push.
     permissions:
       contents: read
 
@@ -126,7 +125,6 @@ jobs:
           set -euo pipefail
           echo "runs=$FOUNDRY_INVARIANT_RUNS depth=$FOUNDRY_INVARIANT_DEPTH"
           echo "(test.yml runs the same suite at 128 x 100)"
-          # v2's two invariant suites; ToshV5InvariantsTest went to legacy/test-v1.
           forge test --match-contract 'LifecycleInvariantTest|BidBookInvariantTest' -vv \
             | tee "$RUNNER_TEMP/invariants.log"
           if grep -q 'No tests found' "$RUNNER_TEMP/invariants.log"; then
@@ -142,39 +140,6 @@ jobs:
           echo "runs=$FOUNDRY_FUZZ_RUNS per property (test.yml runs 256)"
           forge test --match-test testFuzz_ \
             | tee "$RUNNER_TEMP/fuzz.log"
-
-      # STATE-07 is the only automated check on a rule the contracts do not
-      # enforce: `_buybackSqrtFloor` falls back to an unbounded price floor, and
-      # the natspec that kept that fallback says the operational rule is the only
-      # thing holding it. `alerts.json` answers that a rule nobody checks is not
-      # a control. A control nobody TESTS is not a control either, and this
-      # harness exists because the check could once be silenced entirely by one
-      # failing call without paging anyone.
-      #
-      # It lives here rather than in test.yml, and that is not laziness. It runs
-      # the real watch.mjs five times with a stubbed `call()`; every selector the
-      # stub does not intercept still reaches an RPC, so it costs about a minute
-      # and five passes of load on the same public endpoint the monitor depends
-      # on — which 429s on the seventh identical request. On the push path that
-      # would be both slow and self-defeating.
-      #
-      # Consequence worth knowing before reading a red: if the RPC is unreachable
-      # outright, watch.mjs can exit before STATE-07 is reached and this fails for
-      # a reason that has nothing to do with STATE-07. Soak gates no merges, so
-      # that costs attention rather than velocity. The alternative on offer was
-      # running only when somebody remembered to, which is what it did until now.
-      #
-      # MONITOR_RPC is passed for the reason the paragraph above assumes it is:
-      # without it `watch.mjs` falls back to the hardcoded TESTNET endpoint, so
-      # the harness exercised a different node from the one the monitor reads and
-      # the cost described above was never actually paid. The harness supplies its
-      # own MONITOR_FACTORY / MONITOR_TREASURY, so only the endpoint comes from
-      # here. Unset, this still runs — against testnet, as it did before.
-      - name: STATE-07 harness
-        if: always()
-        env:
-          MONITOR_RPC: ${{ secrets.MONITOR_RPC }}
-        run: node monitoring/state07.test.mjs
 
       # The counters are the only evidence for whether a run was vacuous, and
       # this is a record of how badly they can be misread: `afterInvariant()`

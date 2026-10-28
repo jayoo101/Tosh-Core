@@ -15,6 +15,7 @@ interface IInfinityVaultGetter {
 
 interface ISafeOwners {
     function getOwners() external view returns (address[] memory);
+    function getThreshold() external view returns (uint256);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -42,7 +43,7 @@ interface ISafeOwners {
 //      at about the same value: 0.3e18 USDT would fire on nearly every buy.
 //
 //  On chain 56 the registry, WBNB, USDT and fee recipient are asserted against
-//  the known mainnet addresses.
+//  the known mainnet addresses, and the owner Safe must be 2-of-3.
 //
 //    forge script script/DeployV2.s.sol --rpc-url $RPC --broadcast --verify
 //
@@ -57,6 +58,9 @@ contract DeployV2 is Script {
     address internal constant MAINNET_WBNB = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
     address internal constant MAINNET_USDT = 0x55d398326f99059fF775485246999027B3197955;
     address internal constant MAINNET_FEE_SAFE = 0x02DE4629129D104C63329D13A6Ca67E43db7B310;
+    /// @dev `docs/AUDIT.md` publishes this shape; `scripts/checkAuditDoc.mjs` holds the two together.
+    uint256 internal constant MAINNET_SAFE_OWNERS = 3;
+    uint256 internal constant MAINNET_SAFE_THRESHOLD = 2;
 
     struct Env {
         address deployer;
@@ -153,6 +157,11 @@ contract DeployV2 is Script {
             require(e.wbnb == MAINNET_WBNB, "WBNB mismatch");
             require(e.usdt == MAINNET_USDT, "USDT mismatch");
             require(e.feeRecipient == MAINNET_FEE_SAFE, "FEE_RECIPIENT is not the platform fee Safe");
+            require(
+                ISafeOwners(e.safe).getOwners().length == MAINNET_SAFE_OWNERS
+                    && ISafeOwners(e.safe).getThreshold() == MAINNET_SAFE_THRESHOLD,
+                "PROD_OWNER_SAFE is not 2-of-3"
+            );
         }
     }
 

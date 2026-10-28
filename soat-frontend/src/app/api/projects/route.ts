@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
-  isAddress,
   parseEventLogs,
   recoverMessageAddress,
   type Address,
@@ -18,7 +17,8 @@ import {
   corsPreflight,
   readJsonBody,
 } from '../../lib/apiGuard'
-import { FACTORY_ABI, HOOK_ABI } from '../../lib/abis'
+import { V2_FACTORY_ABI, V2_HOOK_ABI } from '@/lib/v2/abis'
+import { V2_FACTORIES } from '@/lib/v2/config'
 import { assertServerChain, serverPublicClient } from '../../lib/serverRpc'
 import { targetChain } from '@/lib/chain'
 import { buildProjectAttestationMessage } from '@/lib/projectAttestation'
@@ -51,20 +51,8 @@ const GET_RATE_LIMIT = {
  *  discover that by silently dropping projects. */
 const MAX_DIRECTORY_ROWS = 500
 
-const FACTORY_ADDRESS = process.env.NEXT_PUBLIC_FACTORY_ADDRESS ?? ''
-
-/** The current factory plus any retired one the site still lists; lowercased. */
-const LISTED_FACTORY_SET = new Set(
-  [
-    FACTORY_ADDRESS,
-    ...(process.env.NEXT_PUBLIC_LEGACY_FACTORY_ADDRESSES ?? '').split(','),
-    process.env.NEXT_PUBLIC_V2_FACTORY_BNB ?? '',
-    process.env.NEXT_PUBLIC_V2_FACTORY_USDT ?? '',
-  ]
-    .map((a) => a.trim())
-    .filter((a) => isAddress(a, { strict: false }))
-    .map((a) => a.toLowerCase()),
-)
+/** The v2 factories, lowercased; only their `LaunchCreated` logs authorise a listing. */
+const LISTED_FACTORY_SET = new Set(V2_FACTORIES.map((a) => a.toLowerCase()))
 
 export async function OPTIONS(req: NextRequest) {
   return corsPreflight(req, CORS_OPTS)
@@ -94,8 +82,8 @@ interface OnChainLaunch {
 async function readLaunchFromChain(
   txHash: Hex,
 ): Promise<{ launch: OnChainLaunch } | { error: NextResponse }> {
-  if (!FACTORY_ADDRESS || !isAddress(FACTORY_ADDRESS)) {
-    console.error('[Tosh API] NEXT_PUBLIC_FACTORY_ADDRESS is unset or malformed')
+  if (LISTED_FACTORY_SET.size === 0) {
+    console.error('[Tosh API] NEXT_PUBLIC_V2_FACTORY_BNB / _USDT are unset or malformed')
     return {
       error: NextResponse.json(
         { error: 'Project verification is not configured on this deployment' },
@@ -158,7 +146,7 @@ async function readLaunchFromChain(
   // same signature, and an attacker who could point this at their own emitter
   // would be back to naming themselves creator.
   const logs = parseEventLogs({
-    abi: FACTORY_ABI,
+    abi: V2_FACTORY_ABI,
     eventName: 'LaunchCreated',
     logs: receipt.logs.filter(
       (l) => LISTED_FACTORY_SET.has(l.address.toLowerCase()),
@@ -220,7 +208,7 @@ async function isAuthorisedPublisher(
   try {
     if (signer) {
       const developer = await client.readContract({
-        address: launch.hook, abi: HOOK_ABI, functionName: 'projectTreasury',
+        address: launch.hook, abi: V2_HOOK_ABI, functionName: 'projectTreasury',
       }) as Address
       if (developer.toLowerCase() === signer.toLowerCase()) return { ok: true, signer }
     }

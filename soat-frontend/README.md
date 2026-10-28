@@ -1,7 +1,7 @@
 # Tosh dApp
 
-The web interface to the Tosh Protocol — launch creation, genesis deposits,
-shelf minting, claims, referrals and the owner console.
+The web interface to ToshX v2 — launch creation, the Agent ID GENESIS sale,
+the shelf ladder, the pre-launch bid market, portfolios and the operator console.
 
 Next.js (App Router) · React · TypeScript · wagmi + viem · Tailwind · Vitest.
 Contracts and protocol documentation are in the [repository root](../README.md).
@@ -20,22 +20,22 @@ before the dev server binds a port rather than halfway through a page load.
 
 ### Environment
 
-`.env.local` — never committed:
+`.env.local` — never committed. `.env.production.example` is the full list:
 
 ```dotenv
-NEXT_PUBLIC_FACTORY_ADDRESS=0x...
-NEXT_PUBLIC_QUOTE_ASSET=0x...        # must equal factory.quoteAsset(); no default
-NEXT_PUBLIC_QUOTE_SYMBOL=BEM         # display ticker; leave as BEM on 56
-NEXT_PUBLIC_CHAIN_ID=97              # 56 for production, once it is deployed
+NEXT_PUBLIC_CHAIN_ID=97              # 56 for production
+NEXT_PUBLIC_V2_FACTORY_BNB=0x...     # ToshFactory raising in BNB
+NEXT_PUBLIC_V2_FACTORY_USDT=0x...    # ToshFactory raising in USDT
+NEXT_PUBLIC_V2_BIDBOOK=0x...
+NEXT_PUBLIC_V2_LENS=0x...
 BSC_RPC=https://...                  # server-side only; keyed mainnet endpoint
 BSC_TESTNET_RPC=https://...          # server-side only; keyed testnet endpoint
 # NEXT_PUBLIC_RPC_URL=              # leave unset in production
-POG_SIGNER_PRIVATE_KEY=0x...         # server-side only, never NEXT_PUBLIC_
 ```
 
-`NEXT_PUBLIC_QUOTE_ASSET` is required and has no fallback. Approving the wrong
-token succeeds; the factory then pulls a different one and the deposit reverts.
-`scripts/checkQuoteAsset.mjs` reconciles the env value against the live factory.
+`src/lib/v2/config.ts` reads the v2 addresses; `node scripts/genV2Abis.mjs`
+regenerates `src/lib/v2/abis.ts` from the Foundry artefacts, and `--check` fails
+when they have drifted.
 
 Two rules the guards enforce, both learned the hard way:
 
@@ -50,8 +50,8 @@ so a keyed URL there ships the key in every browser bundle *and* preempts the
 server-side variable — the paid node stays configured, stays billed, and is
 never called. `npm run check:secrets` enforces both halves.
 
-Supabase (project metadata and logo storage) and Upstash Redis (rate limits, the
-gas-to-quota rate, the admin nonce) are configured through their own variables;
+Supabase (project metadata, logo storage and the v2 event index) and Upstash
+Redis (rate limits) are configured through their own variables;
 `npm run guard:supabase` and `npm run check:upstash` report what is missing.
 
 ---
@@ -60,26 +60,30 @@ gas-to-quota rate, the admin nonce) are configured through their own variables;
 
 | Route | Purpose |
 |---|---|
-| `/` | Directory and genesis dashboard |
-| `/launch` | Create a launch — duration picker, client-side CREATE2 salt and address prediction |
-| `/projects` | All launches, filtered by lifecycle phase |
-| `/projects/[address]` | Project terminal: deposit, launch, mint, claim, LP, referral desk |
-| `/referrals` | Aggregated referral ledger and per-project commission claims |
-| `/r/[code]` | Referral short link — binds the referrer and forwards to the project |
-| `/admin` | Owner console: monitors, parameters, buyback roster |
+| `/` | Homepage: featured raise and live feed |
+| `/launchpad` | Raises in GENESIS |
+| `/launched` | Launched projects |
+| `/market` | Pre-launch bid market |
+| `/launch/v2` | Create a launch (`/launch` redirects here) |
+| `/projects/[address]` | Project terminal: GENESIS buy, launch, shelf mint, fund withdrawal |
+| `/projects/[address]/market` | The project's bid book |
+| `/register` | Agent ID registration |
+| `/portfolio` | A wallet's GENESIS buys, bids and holdings |
+| `/apply` | Project application form |
+| `/admin` | Operator console: v2 roster, featured project |
 
 ### API
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /api/sign-allocation` | Signs a PoG quota attestation. Ignores any caller-supplied nonce and reads the live on-chain value first. |
-| `POST /api/pog-scan` | Multi-chain gas-history scan behind the quota. |
 | `GET/POST /api/projects` | Project metadata registry. Writes require a signed attestation from the creator. |
 | `GET /api/projects/lookup` | Resolve a project by hook, token, name or symbol. |
 | `GET /api/projects/launch-tx` | Recover the `LaunchCreated` transaction hash for a hook, for metadata backfill. |
 | `POST /api/projects/logo` | Logo upload to Supabase Storage. |
-| `GET/POST /api/ref` | Referral code resolution and binding. |
-| `GET/POST /api/admin/config` | Read and rotate `globalGasToSatoRate`. Owner-signed; accepts ERC-1271 so a Safe can authorise it. |
+| `GET /api/v2/index` | Cron: indexes v2 factory, hook and bid-book events into Supabase. |
+| `GET /api/v2/genesis-buys`, `/bids`, `/trades`, `/portfolio` | Reads over that index. |
+| `GET/POST /api/admin/featured` | Homepage pin and cover, behind `CONTENT_ADMIN_SECRET`. |
+| `POST /api/apply` | Forwards a project application to the review group. |
 
 ---
 
@@ -95,7 +99,7 @@ That is what CI runs. The pieces, if you want them individually:
 npx tsc --noEmit
 npm run lint
 npm test            # vitest
-npm run guards      # all nine build-time guards
+npm run guards      # all build-time guards
 ```
 
 The guards exist because type checking cannot see across the boundary between
@@ -105,26 +109,22 @@ unable to catch:
 | Guard | Asserts |
 |---|---|
 | `guard:envshadow` | No `.env` file shadows another in a way that changes which value wins |
-| `guard:chain` | The frontend's chain registry matches the contracts' |
+| `guard:chain` | Chain copy and tickers come from the chain registry, not literals |
 | `guard:env` | No server-only secret is reachable under a `NEXT_PUBLIC_` name |
 | `guard:chainaddr` | The built bundle names the chain and addresses it claims to |
 | `guard:rpc` | RPC selection cannot silently prefer the free endpoint over the paid one |
-| `guard:supabase` | Schema and policies match what the code queries |
-| `guard:clmath` | The TS reimplementation of Infinity CL price math agrees with the Solidity |
-| `guard:lpactions` | Encoded LP action calldata matches the deployed CLPositionManager's ABI shape |
-| `guard:constants` | Every protocol constant mirrored in TS equals the on-chain value |
-
-`guard:constants` and `guard:clmath` are the two that earn their keep most often:
-a constant duplicated in TypeScript is a number that can drift from the contract
-without anything failing to compile, and Infinity CL price math is where an off-by-one
-in a `Q96` conversion produces a plausible-looking wrong answer.
+| `guard:supabase` | Every Supabase query carries a deadline |
+| `guard:constants` | Every protocol constant mirrored in `V2` equals the Solidity value |
+| `guard:payable` | Every call to a payable function sends a `value` |
+| `guard:walletchain` | Nothing asks wagmi's `useChainId` for the wallet's chain, which it cannot answer |
+| `guard:i18n` | Every locale agrees with English on keys, placeholders and markup |
+| `guard:guardcoverage` | Every CI-runnable guard is wired into `frontend.yml` |
 
 Deployment-time checks that hit live services, run against a deployed URL rather
 than in CI:
 
 ```bash
 npm run check:deployed    # the built bundle points at the intended chain
-npm run check:pog         # end-to-end quota flow against production
 npm run check:storage     # the logo bucket exists and is configured
 npm run check:secrets     # secret placement, incl. Vercel "Sensitive" storage
 npm run check:sentry      # error reporting actually reports

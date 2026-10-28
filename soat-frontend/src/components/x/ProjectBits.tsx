@@ -15,23 +15,22 @@ import { fill, useT } from '@/i18n'
 import { prefetchProject, rememberProject } from '@/lib/projectCache'
 import type { GenesisSummary } from './useV2Summaries'
 
-export type CardStatus = 'live' | 'pending' | 'trading' | 'refund'
+export type CardStatus = 'live' | 'pending' | 'trading'
 
 export function statusOf(p: DirectoryProject): CardStatus {
   if (p.tab === 'completed') return 'trading'
-  if (p.tab === 'archived') return 'refund'
   if (p.tab === 'launching') return 'pending'
   return 'live'
 }
 
 export function StatusPill({ status, className }: { status: CardStatus; className?: string }) {
   const t = useT().x
-  const label = { live: t.statusLive, pending: t.statusPending, trading: t.statusTrading, refund: t.statusRefund }[status]
+  const label = { live: t.statusLive, pending: t.statusPending, trading: t.statusTrading }[status]
   return (
     <span
       className={cn(
         'shrink-0 rounded-input px-1.5 py-0.5 font-mono text-micro uppercase',
-        status === 'live' ? 'bg-brand text-bg-base' : status === 'refund' ? 'bg-danger/15 text-danger' : 'bg-surface-hover text-brand',
+        status === 'live' ? 'bg-brand text-bg-base' : 'bg-surface-hover text-brand',
         className,
       )}
     >

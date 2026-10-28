@@ -72,7 +72,7 @@ vi.mock('@/app/lib/supabase', () => ({
 
 beforeEach(() => {
   // `@/lib/contracts` throws at import if this is unset.
-  vi.stubEnv('NEXT_PUBLIC_FACTORY_ADDRESS', '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0')
+  vi.stubEnv('NEXT_PUBLIC_V2_FACTORY_BNB', '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0')
   vi.stubEnv('NEXT_PUBLIC_CHAIN_ID', '31337')
   reads = {}
   registry = async () => ({ data: [], error: null })
@@ -164,24 +164,23 @@ describe('getProject — absence and unavailability are different answers', () =
     await expect(getProject(HOOK)).resolves.toEqual({ status: 'not-found' })
   })
 
-  it('finds a token registered on a retired factory', async () => {
-    const LEGACY = '0x20dE906A96FfB89BE6fd6267A0876A68017792F7'
-    vi.stubEnv('NEXT_PUBLIC_LEGACY_FACTORY_ADDRESSES', LEGACY)
+  it('finds a token registered on the second factory', async () => {
+    const USDT = '0x20dE906A96FfB89BE6fd6267A0876A68017792F7'
+    vi.stubEnv('NEXT_PUBLIC_V2_FACTORY_USDT', USDT)
     const asked: string[] = []
     reads = {
       tokenToHook: (address) => {
         asked.push(address)
-        return address === LEGACY ? HOOK : ZERO
+        return address === USDT ? HOOK : ZERO
       },
-      name: () => 'Old Launch',
-      symbol: () => 'OLD',
+      name: () => 'Stable Launch',
+      symbol: () => 'STB',
     }
     const result = await getProject(TOKEN)
     expect(result.status).toBe('found')
     if (result.status !== 'found') return
     expect(result.row.hook_address).toBe(HOOK)
-    // Current factory first: it is where a new launch lives.
-    expect(asked).toEqual(['0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0', LEGACY])
+    expect(asked).toEqual(['0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0', USDT])
   })
 
   it('rejects a malformed address without touching the chain or the registry', async () => {

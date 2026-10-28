@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { CHAIN_STATUS_BADGE } from '@/lib/chain'
-import { QUOTE_SYMBOL } from '@/lib/contracts'
+import { NATIVE_SYMBOL } from '@/lib/chain'
 
 /*
  * opengraph-image.tsx — the card a shared toshx.xyz link renders as
@@ -40,7 +40,7 @@ const VIOLET = '#FCD535'
 const TEXT = '#EAECEF'
 const MUTED = '#848E9C'
 
-export const alt = `ToshX — the fair-launch terminal of the ${QUOTE_SYMBOL} ecosystem`
+export const alt = `ToshX — the fair-launch terminal of the ${NATIVE_SYMBOL} ecosystem`
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 
@@ -126,7 +126,7 @@ export default function Image() {
                 is the only version that cannot be silently dropped. */}
             <div style={{ display: 'flex', gap: 20 }}>
               <span>of the</span>
-              <span style={{ color: BRAND }}>{QUOTE_SYMBOL} ecosystem.</span>
+              <span style={{ color: BRAND }}>{NATIVE_SYMBOL} ecosystem.</span>
             </div>
           </div>
 
@@ -166,7 +166,7 @@ export default function Image() {
             >
               {/* The denomination, and the reason this card is worth deriving
                   rather than exporting once as a PNG. */}
-              {QUOTE_SYMBOL}-denominated
+              {NATIVE_SYMBOL}-denominated
             </div>
           </div>
           <div style={{ display: 'flex', fontSize: 24, color: VIOLET }}>toshx.xyz</div>

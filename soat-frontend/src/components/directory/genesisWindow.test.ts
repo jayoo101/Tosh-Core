@@ -1,13 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
-// `phase.ts` pulls `LAUNCH_WINDOW_SECONDS` from `contracts.ts`, which throws at
-// import without a factory address. Hoisting beats the static import below.
-vi.hoisted(() => {
-  process.env.NEXT_PUBLIC_FACTORY_ADDRESS = '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0'
-  process.env.NEXT_PUBLIC_CHAIN_ID = '97'
-})
-
-import { genesisWindow } from './phase'
+import { genesisWindow } from './genesisWindow'
 
 /**
  * The genesis cell used to hold a bar filling toward the soft cap, and the
@@ -41,7 +34,6 @@ const DAY = 24 * HOUR
 function at(elapsed: number, duration = DAY) {
   const opened = 1000
   return genesisWindow({
-    phase: 'genesis',
     genesisDeadline: BigInt(opened + duration),
     genesisDuration: BigInt(duration),
     nowSec: opened + elapsed,
@@ -94,28 +86,16 @@ describe('genesisWindow', () => {
     expect(at(DAY)).toBeUndefined()
     expect(at(DAY + 1)).toBeUndefined()
 
-    for (const phase of ['awaiting_launch', 'bonding', 'refund'] as const) {
-      expect(
-        genesisWindow({
-          phase,
-          genesisDeadline: BigInt(1000 + DAY),
-          genesisDuration: BigInt(DAY),
-          nowSec: 1000,
-        }),
-        `${phase} must not draw a genesis clock`,
-      ).toBeUndefined()
-    }
   })
 
   it('draws nothing before the first poll resolves the deadline', () => {
-    // `genesisDeadline` is 0n until the read lands, and `resolvePhase` calls
-    // that 'genesis'. A deadline in the past makes `remaining` negative, so the
+    // `genesisDeadline` is 0n until the read lands. A deadline in the past makes `remaining` negative, so the
     // guard that catches an expired window catches an unresolved one too.
     expect(
-      genesisWindow({ phase: 'genesis', genesisDeadline: 0n, genesisDuration: BigInt(DAY), nowSec: 1000 }),
+      genesisWindow({ genesisDeadline: 0n, genesisDuration: BigInt(DAY), nowSec: 1000 }),
     ).toBeUndefined()
     expect(
-      genesisWindow({ phase: 'genesis', genesisDeadline: BigInt(1000 + DAY), genesisDuration: 0n, nowSec: 1000 }),
+      genesisWindow({ genesisDeadline: BigInt(1000 + DAY), genesisDuration: 0n, nowSec: 1000 }),
     ).toBeUndefined()
   })
 })

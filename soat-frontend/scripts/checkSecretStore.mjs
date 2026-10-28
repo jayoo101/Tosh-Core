@@ -141,10 +141,6 @@ const FRONTEND_ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
  */
 const INVENTORY = {
   // ── Credentials. A leak of any of these is an incident. ──────────────────
-  POG_SIGNER_PRIVATE_KEY: {
-    tier: 'secret',
-    why: 'Signs PoG allocation attestations. Whoever holds it can mint deposit quota out of nothing.',
-  },
   SUPABASE_SERVICE_ROLE_KEY: {
     tier: 'secret',
     why: 'Bypasses row-level security on the project registry. Full read/write on every row.',
@@ -153,52 +149,17 @@ const INVENTORY = {
     tier: 'secret',
     why: 'Read/write on the rate-limit store. Holding it means being able to erase the limits.',
   },
+  CRON_SECRET: {
+    tier: 'secret',
+    why: 'Bearer secret on /api/v2/index. Vercel cron sends it on its own once set; unset, the '
+       + 'route refuses rather than letting anyone drive the indexer.',
+  },
   SENTRY_AUTH_TOKEN: {
     tier: 'secret',
     why: 'org:ci scope — uploads source maps and cuts releases against the Sentry org.',
   },
-  CRON_SECRET: {
-    tier: 'optional-pair',
-    pairedWith: 'WATCH_DISPATCH_TOKEN',
-    why: 'Shared secret on GET/POST /api/watch-ping. Vercel cron sends it as '
-       + 'Authorization: Bearer when this name is set. Unset, the route refuses rather '
-       + 'than firing an unauthenticated Actions dispatch. A leak spends Actions minutes; '
-       + 'the concurrency group on watch.yml already serialises them.',
-  },
-  WATCH_DISPATCH_TOKEN: {
-    tier: 'optional-pair',
-    pairedWith: 'CRON_SECRET',
-    why: 'Fine-grained PAT with Contents: write on jayoo101/Tosh-Core. /api/watch-ping '
-       + 'uses it to POST repository_dispatch=watch — the scheduler GitHub\'s own cron '
-       + 'is not, because that pool delivered 0.269 passes/hour no matter the interval. '
-       + 'Contents, not Actions: GitHub files POST /repos/{o}/{r}/dispatches under '
-       + 'Contents, and Actions: write buys the workflow_dispatch endpoint instead — a '
-       + 'token scoped that way authenticates and is then refused, which reaches the '
-       + 'operator as a 502 from a ping that looked accepted. Not ALERT_REPO_TOKEN: that '
-       + 'one files into tosh-alerts. Nothing beyond Contents is needed; GITHUB_TOKEN '
-       + 'inside the job persists the checkpoint. Expires on the date in '
-       + '`monitoring/watch-dispatch-token-expires`; `scripts/checkTokenExpiry.mjs` goes '
-       + 'red 21 days out, because the lapse itself is silent — findings keep filing and '
-       + 'only the cadence quietly halves back to GitHub\'s cron.',
-  },
-  BLOCKSCOUT_API_KEY: {
-    tier: 'secret',
-    why: 'Reads the five-chain gas history every genesis allocation is sized from. It is a '
-       + 'credential twice over: the daily credit allowance is drainable, and the gas scan '
-       + 'fails closed, so whoever spends the budget blocks every claim — and on a paid tier '
-       + 'the overage is billed to us.',
-  },
 
   // ── Operator signing keys. No server-side use; never a remote store. ────
-  LAUNCH_CREATOR_PRIVATE_KEY: {
-    tier: 'local-only',
-    why: 'Broadcasts createLaunch and launch(), and on 4663 it is the creator of the live '
-       + 'project — so it holds the only claim on that launch\'s 4,620,000-token genesis '
-       + 'tranche, and `creator` is an immutable clone argument that no admin call can '
-       + 'reassign. Read by scripts/watchAndLaunch.mjs and scripts/e2eLaunchFlow.mjs, both '
-       + 'of which run on an operator machine. Nothing server-side reads it, so a copy in '
-       + 'Vercel would be reach without a reason.',
-  },
   CREATOR_PRIVATE_KEY: {
     tier: 'absent',
     why: 'A dead alias of LAUNCH_CREATOR_PRIVATE_KEY that no code in this repository reads — '
@@ -210,31 +171,17 @@ const INVENTORY = {
   },
 
   // ── Configuration. Readable on purpose; none of it is a credential. ──────
-  NEXT_PUBLIC_FACTORY_ADDRESS:       { tier: 'config', why: 'Public contract address; shipped in the client bundle.' },
-  NEXT_PUBLIC_TREASURY_ADDRESS:      { tier: 'config', why: 'Public contract address; shipped in the client bundle.' },
-  NEXT_PUBLIC_LEGACY_FACTORY_ADDRESSES: { tier: 'config', why: 'Retired factory addresses whose launches stay listed; public, shipped in the client bundle.' },
   NEXT_PUBLIC_CHAIN_ID:              { tier: 'config', why: 'Public chain selector.' },
+  NEXT_PUBLIC_V2_BIDBOOK:            { tier: 'config', why: 'v2 bid book address; public, shipped in the client bundle.' },
+  NEXT_PUBLIC_V2_LENS:               { tier: 'config', why: 'v2 hook lens address; public, shipped in the client bundle.' },
+  NEXT_PUBLIC_V2_FACTORY_BNB:        { tier: 'config', why: 'v2 factory for BNB raises; public, shipped in the client bundle.' },
+  NEXT_PUBLIC_V2_FACTORY_USDT:       { tier: 'config', why: 'v2 factory for USDT raises; public, shipped in the client bundle.' },
+  NEXT_PUBLIC_V2_WBNB:               { tier: 'config', why: 'WBNB address the BNB factory settles in.' },
+  NEXT_PUBLIC_V2_USDT:               { tier: 'config', why: 'USDT address the USDT factory settles in.' },
+  NEXT_PUBLIC_V2_FROM_BLOCK:         { tier: 'config', why: 'Bid book deployment block; log scans start here.' },
   NEXT_PUBLIC_LAUNCHES_PAUSED:       { tier: 'config', why: 'launchGate.ts: "1" closes /launch in the UI. The contract, not this flag, is what enforces who can launch.' },
   NEXT_PUBLIC_LOCALES:               { tier: 'config', why: 'locales.ts: which non-English dictionaries are served. Public, inlined at build time.' },
   NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: { tier: 'config', why: 'wallets.ts: WalletConnect Cloud project id. Public by design; it ships in every client bundle and is scoped by the allowed-origins list in the WalletConnect dashboard.' },
-  NEXT_PUBLIC_QUOTE_ASSET: {
-    tier: 'config',
-    why: 'The token `factory.quoteAsset()` returns — a public contract address, shipped in the '
-       + 'client bundle. Config rather than a credential, but the one config row where being '
-       + 'WRONG is worse than being absent: absent throws at module load and the build fails, '
-       + 'which is why contracts.ts gives it no default, while a wrong address is a live site '
-       + 'asking depositors to approve the wrong token. `check:quote` is what closes that gap — it '
-       + 'reads the factory and compares — and this row only establishes that the name is '
-       + 'classified and present.',
-  },
-  NEXT_PUBLIC_QUOTE_SYMBOL: {
-    tier: 'config',
-    why: 'Display ticker for the quote asset. Cosmetic, and defaulted to BEM in source, so unlike '
-       + 'the address above its absence is invisible. It is set in production anyway because the '
-       + 'default is only right while the quote asset IS BEM: on a testnet holding the mock it '
-       + 'read mBEM, and a ticker that outlives the token it names is a label claiming a deposit '
-       + 'is in something it is not.',
-  },
   NEXT_PUBLIC_RPC_URL: {
     tier: 'absent',
     carriesCredential: false,
@@ -249,7 +196,7 @@ const INVENTORY = {
        + 'redundant or harmful. Redundant, precisely: its former value is character-for-character '
        + "viem's robinhood.rpcUrls.default.http[0], which providers.tsx appends unconditionally, "
        + 'so deleting it left the browser candidate list identical. A paid endpoint belongs off '
-       + 'NEXT_PUBLIC_*, the way MONITOR_RPC is a GitHub secret for the same reason.',
+       + 'NEXT_PUBLIC_*.',
   },
   // NEXT_PUBLIC_BSC_RPC and NEXT_PUBLIC_BSC_TESTNET_RPC are deliberately NOT
   // rows here, and the omission is the classification rather than an oversight.
@@ -265,17 +212,6 @@ const INVENTORY = {
   // in a remote store without a row, so ADDING either one still comes up for
   // review — which is what you want for a NEXT_PUBLIC_ name, because the prefix
   // inlines it into every browser bundle.
-  NEXT_PUBLIC_LADDER_TREASURY: {
-    tier: 'absent',
-    carriesCredential: false,
-    why: 'The older alias of NEXT_PUBLIC_TREASURY_ADDRESS. contracts.ts resolves the canonical '
-       + 'name first and says plainly to delete this one rather than resolve it, because both set '
-       + 'and disagreeing is a case the `??` picks silently: a .env.local once carried the '
-       + 'PREVIOUS deployment\'s treasury under the alias while the canonical name held the '
-       + 'current one, and both were live contracts of identical size because they are the same '
-       + 'contract from two deploys. Vercel production correctly holds only the canonical name. '
-       + 'Two names for one address is the same shape as two names for one key.',
-  },
   NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC: {
     tier: 'absent',
     carriesCredential: false,
@@ -311,41 +247,17 @@ const INVENTORY = {
   },
   BSC_TESTNET_RPC: {
     tier: 'ci',
-    why: 'Chain 97. Read by the rehearsal scripts and by anything driving the deployed testnet '
-       + 'factory.\n\n'
-       + 'It carried `alsoVercel: sensitive` until 56 went live, on the reasoning that serverRpc.ts '
-       + 'resolves this name for 97 and 97 was what NEXT_PUBLIC_CHAIN_ID pointed at — so it WAS '
-       + 'the endpoint production read. That is no longer true and the row had become the thing '
-       + 'this file is most at risk of producing: a hard failure naming no problem. Production is '
-       + 'pinned to 56, verified by asking it — /api/pog-scan answers chainId 97 with "Unsupported '
-       + 'chainId 97", because isSupportedPogChain derives from NEXT_PUBLIC_CHAIN_ID — so nothing '
-       + 'server-side can reach the 97 branch, and a Vercel row for it would be an unused '
-       + 'credential kept alive by a checker. The CI half stays: the testnet factory is still '
-       + 'there and the scripts still drive it.\n\n'
-       + 'If a build is ever pointed back at 97, this needs `alsoVercel` again — which is the '
-       + 'procedural rule in the docblock above, stated for the row that just exercised it.',
+    why: 'Chain 97. Read by anything driving a testnet deployment. Production is pinned to 56, so '
+       + 'nothing server-side reaches the 97 branch and a Vercel row would be an unused credential. '
+       + 'If a build is ever pointed back at 97, this needs `alsoVercel` again.',
   },
-    ETHERSCAN_API_KEY: {
-      tier: 'ci',
-      alsoVercel: 'sensitive',
-      why: 'Contract verification on BOTH BSC chains. foundry.toml points `bsc` and `bsc_testnet` '
-         + 'at Etherscan v2\'s multichain host on this one key, so a single value covers 56 and 97 '
-         + '— which is also why losing it blocks verification on both at once. Blockscout does not '
-         + 'cover chain 56 at any tier, so there is no second door: unverified is the state a '
-         + 'missing key leaves the mainnet factory in, and an unverified launchpad is one nobody '
-         + 'can read the terms of before depositing.',
-      alsoVercelWhy:
-        'Two consumers since 2026-09-22, and the second one is louder than the first. '
-        + 'gasHistory.ts reads chain 56 through this same key, because Blockscout has no chain-56 '
-        + 'instance at any tier and 56 is the chain the protocol settles on. That row is '
-        + '`required`, so `scanKeyPresent()` demands BOTH keys and a Vercel copy that is missing '
-        + 'takes PoG scanning offline entirely rather than costing only the 56 leg — which is the '
-        + 'deliberate choice, a 503 naming the variable being better than five refused chains. '
-        + 'ORDER MATTERS ON DEPLOY: add this to Vercel BEFORE shipping a build that reads it. '
-        + 'One paid plan covers both consumers, so this is one purchase in two stores, never two '
-        + 'keys — and cross-wiring it with BLOCKSCOUT_API_KEY is invisible, both vendors spelling '
-        + 'the parameter `apikey`.',
-    },
+  ETHERSCAN_API_KEY: {
+    tier: 'ci',
+    why: 'Contract verification on BOTH BSC chains. foundry.toml points `bsc` and `bsc_testnet` '
+       + 'at Etherscan v2\'s multichain host on this one key, so losing it blocks verification on '
+       + 'both at once — and an unverified launchpad is one nobody can read the terms of before '
+       + 'depositing.',
+  },
   ROBINHOOD_RPC: {
     tier: 'absent',
     why: 'The chain-4663 endpoint, and a keyed one. The Infinity port removed BOTH of its '
@@ -358,110 +270,8 @@ const INVENTORY = {
        + 'from GitHub Actions and from Vercel production, and rotate at the provider — the '
        + 'operator scripts under scripts/ still carry it as a default, so copies exist.',
   },
-  MONITOR_RPC: {
-    tier: 'ci',
-    why: 'The endpoint the on-chain watcher reads. A secret rather than a variable only because '
-       + 'RPC URLs routinely carry the key in the path. Its absence is worse than silent before '
-       + 'C1 and loud after: watch.mjs falls back to the hardcoded testnet URL, which is the '
-       + 'right chain today and the wrong one the moment mainnet is what needs watching. The '
-       + 'WATCHER-03 chain-id check is what catches that, and only once the state file already '
-       + 'holds 4663 — so this row, not that check, is what says the secret must exist.',
-  },
 
-  // ── CI configuration. Plaintext to anyone with repo access, and meant to be.
-  //    Listed because "holds no credential" is a claim worth having reviewed,
-  //    and because these four are what decide WHICH chain is being watched. ──
-  // ── The alerting path. Added 2026-09-12: all four were live GitHub secrets
-  //    that this file did not carry, which is the one failure mode its own
-  //    docblock is about — a check that does not name a credential cannot
-  //    report on it, and every run stayed green while four went unclassified. ──
-  // All four are `ci`, not `secret`/`ci-config`, and the tiers are not
-  // interchangeable: `secret` asserts a row in Vercel production, `ci-config`
-  // asserts a GitHub Actions VARIABLE. Nothing in the Next.js app reads any of
-  // these — they are read by `monitoring/report.mjs` under `watch.yml` — and
-  // watch.yml resolves all four through `secrets.`, including the two that
-  // carry no credential. Classifying them by what they ARE rather than by
-  // where they LIVE would make this check demand a Vercel row for a pager
-  // token the app cannot use, which is reach without a reason.
-  ALERT_REPO_TOKEN: {
-    tier: 'ci',
-    why: 'A fine-grained PAT on jayoo101/tosh-alerts with Issues:write. It exists because this '
-       + 'repository went public on 2026-09-11 and the issue tracker went public with it, so the '
-       + 'watcher files findings into a private repo instead — meaning this token is what keeps '
-       + 'unpublished on-chain findings unpublished. It expires on the date in '
-       + '`monitoring/alert-token-expires` (issued for 90 days). The day it lapses, '
-       + '`scripts/checkTokenExpiry.mjs` turns CI red and filing 401s; the checkpoint '
-       + 'deliberately stops advancing. Unset '
-       + 'falls back to the per-run secrets.GITHUB_TOKEN and this repository, which is the old '
-       + 'behaviour and now the wrong sink.',
-  },
-  PAGER_TELEGRAM_TOKEN: {
-    tier: 'ci',
-    why: 'A Telegram bot token. With PAGER_TELEGRAM_CHAT it turns report.mjs from a notifier into '
-       + 'a pager that pushes every P0 into the operators\' Telegram channel. Holding it means '
-       + 'being able to post into that channel as the pager — so a leak is not only eavesdropping, '
-       + 'it is forging incident traffic to the signers. MUST be set through the stdin prompt, '
-       + 'never `gh secret set --body`: a live PoG key leak happened exactly that way, via shell '
-       + 'history.',
-  },
-  ALERT_REPO: {
-    tier: 'ci',
-    why: 'The owner/name the watcher files into, read as WATCH_ISSUE_REPO. A repository slug and '
-       + 'no credential, yet stored as a GitHub secret rather than a variable — which is the '
-       + 'right call for a different reason than secrecy: it names a PRIVATE repository, and a '
-       + 'variable is readable to anyone who can see the public Actions logs. report.mjs also '
-       + 'treats a 404 from it as a likely token problem rather than a missing repo, because a '
-       + 'private repository returns 404 to a token without access.',
-  },
-  PAGER_TELEGRAM_CHAT: {
-    tier: 'ci',
-    why: 'The chat id the pager pushes into. Not a credential — posting needs the bot token — but '
-       + 'stored as a secret for the same reason as ALERT_REPO: it identifies the operators\' '
-       + 'incident channel, which is not something to publish in a log. It is half of the '
-       + 'PAGER_ON condition, so with only one of the pair set report.mjs writes findings down '
-       + 'and wakes nobody, and says so on every pass rather than failing.',
-  },
-
-  MONITOR_FACTORY:             { tier: 'ci-config', why: 'Public factory address the watcher scans.' },
-  MONITOR_TREASURY:            { tier: 'ci-config', why: 'Public treasury address the watcher scans.' },
-  MONITOR_EXPECTED_OWNER:      { tier: 'ci-config', why: 'Public address the watcher expects to own both; a change is the alert.' },
-  MONITOR_EXPECTED_GATEWAY:    { tier: 'ci-config', why: 'Public ToshLaunchGateway address expected to own the factory for the Safe in MONITOR_EXPECTED_OWNER.' },
-  MONITOR_EXPECTED_POG_SIGNER: { tier: 'ci-config', why: 'Public address of the PoG signer; the private half is POG_SIGNER_PRIVATE_KEY.' },
-  MONITOR_DEPLOY_BLOCK: {
-    tier: 'ci-config',
-    why: 'The block the mainnet factory was deployed in, which is where the watcher starts its '
-       + 'log scan. A block height carries no credential. It is load-bearing rather than a tuning '
-       + 'knob: without it the first pass on 56 has no lower bound and every provider caps '
-       + 'eth_getLogs, so the scan either returns nothing or is refused — which reads as a quiet '
-       + 'watcher rather than as a missing variable. Set with the deployment on 2026-09-21, and it '
-       + 'must move with any redeploy, because a stale height is a scan that starts before the '
-       + 'contracts it is watching exist.',
-  },
-  MONITOR_MAX_RUN_GAP_MIN: {
-    tier: 'ci-config',
-    why: 'Minutes the watcher tolerates between passes before WATCHER-05 pages. Carries no '
-       + 'credential. Set to 60 on 2026-09-14, down from the 480 default, once /api/watch-ping '
-       + 'had been measured delivering every ~15 minutes: three consecutive misses still stay '
-       + 'quiet, while an outage surfaces eight times sooner than the default allowed. The '
-       + 'number is only defensible against that measurement, so raising it without taking a '
-       + 'fresh one lengthens the blind window rather than reducing noise.',
-  },
-
-  // ── Deliberately unset. ──────────────────────────────────────────────────
-  MONITOR_KEEPER_ADDRESS: {
-    tier: 'absent',
-    carriesCredential: false,
-    why: 'Turns on the STATE-05 keeper gas-balance check. Unset is correct while no automated '
-       + 'keeper exists — the check would otherwise page about an empty address that is empty '
-       + 'because it does not exist. Set it only when something starts calling pokeBuyback() '
-       + 'on a schedule, which is the first wallet the protocol has that can fail by running dry.',
-  },
-  ADMIN_SECRET: {
-    tier: 'absent',
-    why: 'Bearer-token fallback on POST /api/admin/config. Unset disables that path entirely and '
-       + 'leaves the owner-signature check as the only way in, which is the posture we want. '
-       + 'Setting it re-opens a shared-secret route to a privileged endpoint.',
-  },
+  // ── Operator-facing integrations. ────────────────────────────────────────
   APPLY_TELEGRAM_BOT_TOKEN: {
     tier: 'secret',
     why: 'The /apply review bot. POST /api/apply posts every project application into the private '
@@ -477,25 +287,12 @@ const INVENTORY = {
   CONTENT_ADMIN_SECRET: {
     tier: 'secret',
     why: 'Bearer credential on POST /api/admin/featured, the homepage feature pin. Deliberately '
-       + 'NOT the same posture as ADMIN_SECRET above, and the difference is what it can reach: '
-       + 'that name guards protocol dials and is pinned absent so the owner signature stays the '
-       + 'only way in, while this one can do exactly one thing — reorder three cards the homepage '
+       + 'NOT the same posture as ADMIN_SECRET below: this one can do exactly one thing — reorder three cards the homepage '
        + 'was already showing, for at most 14 days, with no contract call anywhere behind it. '
        + 'Holding it buys placement, not authority. It is a real secret because placement has '
        + 'value: without it the widest card goes to whoever deposits the most, which early in a '
        + 'deployment is one unit of quote above the leader and refundable afterwards. Unset is '
        + 'safe and closed — the route 503s and the homepage keeps its computed order.',
-  },
-  POG_PRIVATE_KEY: {
-    tier: 'absent',
-    why: 'The spec-compliant alias for POG_SIGNER_PRIVATE_KEY, and a second place the signing '
-       + 'key can live. `loadOracleAccount` reads `POG_SIGNER_PRIVATE_KEY ?? POG_PRIVATE_KEY` '
-       + '(sign-allocation/route.ts), so whichever value sits here is inert while the primary '
-       + 'is set -- which is exactly what makes it dangerous: rotating the primary leaves a '
-       + 'superseded key behind, in a store, readable, and this file would still report every '
-       + 'row green because it never asked about a name it did not carry. That is the shape of '
-       + 'the 2026-09-10 sweep, where the check was green throughout because it never asked '
-       + 'whether a copy existed. One name for the key, and it is the primary.',
   },
   PRIVATE_KEY: {
     tier: 'absent',
@@ -508,6 +305,79 @@ const INVENTORY = {
        + '.env.bak-premigration that every green run had missed, because a check that does not '
        + 'carry a name cannot report on it. A deploy key is the strictly worse leak -- it owns '
        + 'contracts rather than signing quota.',
+  },
+  // ── Retired with v1. Each was live in at least one store; a copy left behind
+  //    is reach without a reason, so presence anywhere is the finding. ──────
+  POG_SIGNER_PRIVATE_KEY: {
+    tier: 'absent',
+    why: 'Retired with v1, and nothing reads it now. It signed PoG allocation attestations for the v1 genesis; v2 has no PoG. Delete it from Vercel and destroy the key.',
+  },
+  POG_PRIVATE_KEY: {
+    tier: 'absent',
+    why: 'Retired with v1, and nothing reads it now. The old alias of POG_SIGNER_PRIVATE_KEY.',
+  },
+  BLOCKSCOUT_API_KEY: {
+    tier: 'absent',
+    why: 'Retired with v1, and nothing reads it now. It read the gas history the v1 PoG quota was sized from.',
+  },
+  WATCH_DISPATCH_TOKEN: {
+    tier: 'absent',
+    why: 'Retired with v1, and nothing reads it now. It let /api/watch-ping start the v1 on-chain watcher, which is gone.',
+  },
+  LAUNCH_CREATOR_PRIVATE_KEY: {
+    tier: 'absent',
+    why: 'Retired with v1, and nothing reads it now. Read only by the v1 launch scripts, which are gone. v2 launches go through the Safe.',
+  },
+  ADMIN_SECRET: {
+    tier: 'absent',
+    why: 'Retired with v1, and nothing reads it now. Bearer fallback on the removed POST /api/admin/config.',
+  },
+  ALERT_REPO_TOKEN: {
+    tier: 'absent',
+    why: 'Retired with v1, and nothing reads it now. The v1 watcher filed findings with it.',
+  },
+  PAGER_TELEGRAM_TOKEN: {
+    tier: 'absent',
+    why: 'Retired with v1, and nothing reads it now. The v1 watcher paged with it.',
+  },
+  MONITOR_RPC: {
+    tier: 'absent',
+    why: 'Retired with v1, and nothing reads it now. The v1 watcher read the chain through it.',
+  },
+  NEXT_PUBLIC_FACTORY_ADDRESS: {
+    tier: 'absent',
+    carriesCredential: false,
+    why: 'Retired with v1, and nothing reads it now. The v1 factory. v2 reads NEXT_PUBLIC_V2_FACTORY_BNB / _USDT.',
+  },
+  NEXT_PUBLIC_LEGACY_FACTORY_ADDRESSES: {
+    tier: 'absent',
+    carriesCredential: false,
+    why: 'Retired with v1, and nothing reads it now. Retired v1 factories whose launches stayed listed.',
+  },
+  NEXT_PUBLIC_TREASURY_ADDRESS: {
+    tier: 'absent',
+    carriesCredential: false,
+    why: 'Retired with v1, and nothing reads it now. The v1 ladder treasury.',
+  },
+  NEXT_PUBLIC_LADDER_TREASURY: {
+    tier: 'absent',
+    carriesCredential: false,
+    why: 'Retired with v1, and nothing reads it now. The older alias of NEXT_PUBLIC_TREASURY_ADDRESS.',
+  },
+  NEXT_PUBLIC_QUOTE_ASSET: {
+    tier: 'absent',
+    carriesCredential: false,
+    why: 'Retired with v1, and nothing reads it now. The v1 single quote asset. Each v2 hook carries its own.',
+  },
+  NEXT_PUBLIC_QUOTE_SYMBOL: {
+    tier: 'absent',
+    carriesCredential: false,
+    why: 'Retired with v1, and nothing reads it now. Display ticker for NEXT_PUBLIC_QUOTE_ASSET.',
+  },
+  NEXT_PUBLIC_QUOTE_DECIMALS: {
+    tier: 'absent',
+    carriesCredential: false,
+    why: 'Retired with v1, and nothing reads it now. Decimals for NEXT_PUBLIC_QUOTE_ASSET.',
   },
 }
 

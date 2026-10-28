@@ -141,22 +141,22 @@ if (!body) {
 // This is the one figure here a reader might act on — it says how many keys
 // stand between them and every owner-only dial — and it was wrong in the
 // direction that flatters us. So it is checked, and checked against
-// `verifyOwnerSafe.mjs`, which is the thing that actually refuses a Safe of the
-// wrong shape against the live chain. Not against a constant repeated here: a
-// second hardcoded pair would be a second place to forget, which is the failure
-// this whole file exists to catch.
+// `script/DeployV2.s.sol`, which refuses a chain-56 deploy whose owner Safe has
+// the wrong shape. Not against a constant repeated here: a second hardcoded
+// pair would be a second place to forget, which is the failure this whole file
+// exists to catch.
 //
 // `safe-owners.json` would be the other candidate and cannot be used — it names
 // the signers, so it is gitignored and absent in CI.
-const safeGate = read('scripts/verifyOwnerSafe.mjs')
-const pinned = /owners\.length !== (\d+) \|\| threshold !== (\d+)n/.exec(safeGate)
-if (!pinned) {
+const safeGate = read('script/DeployV2.s.sol')
+const owners = /MAINNET_SAFE_OWNERS = (\d+);/.exec(safeGate)?.[1]
+const threshold = /MAINNET_SAFE_THRESHOLD = (\d+);/.exec(safeGate)?.[1]
+if (!owners || !threshold || !safeGate.includes('getThreshold() == MAINNET_SAFE_THRESHOLD')) {
   problems.push(
-    'cannot find the owners/threshold pair in scripts/verifyOwnerSafe.mjs, so the ' +
-      'published custody claim cannot be checked against what is enforced on chain'
+    'cannot find the enforced owners/threshold pair in script/DeployV2.s.sol, so the ' +
+      'published custody claim cannot be checked against what the deploy enforces'
   )
 } else {
-  const [, owners, threshold] = pinned
   // Anchored on "Gnosis Safe" so the sentence recording the old wrong figure
   // does not match, and read out of `body` so it is the disposition record's
   // claim being checked rather than any passing mention elsewhere.
@@ -168,7 +168,7 @@ if (!pinned) {
   } else if (claim[1] !== threshold || claim[2] !== owners) {
     problems.push(
       `the record calls the owner a ${claim[1]}-of-${claim[2]} Gnosis Safe; ` +
-        `verifyOwnerSafe.mjs enforces ${threshold}-of-${owners} against the live Safe`
+        `DeployV2.s.sol enforces ${threshold}-of-${owners} on chain 56`
     )
   }
 }
@@ -178,7 +178,7 @@ if (problems.length === 0) {
     `OK    docs/AUDIT.md matches both baselines: ` +
       `Slither ${slither.total}, Aderyn ${aderyn.total} across ` +
       `${Object.keys(aderyn.byCheck).length} detectors; ` +
-      `custody claim agrees with the Safe shape verifyOwnerSafe.mjs enforces.`
+      `custody claim agrees with the Safe shape DeployV2.s.sol enforces.`
   )
   process.exitCode = 0
 } else {

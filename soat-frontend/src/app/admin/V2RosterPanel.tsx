@@ -34,7 +34,7 @@ const linkBtn =
 
 export function V2RosterPanel() {
   const t = useT().admin
-  const { projects } = useDirectoryProjects({ includeHidden: true })
+  const { projects } = useDirectoryProjects()
   const stacks = [
     V2_FACTORY_BNB && { factory: V2_FACTORY_BNB, quote: NATIVE_SYMBOL },
     V2_FACTORY_USDT && { factory: V2_FACTORY_USDT, quote: 'USDT' },

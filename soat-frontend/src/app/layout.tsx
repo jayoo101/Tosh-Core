@@ -6,7 +6,6 @@ import { Providers } from './providers'
 import { ToshNavbar } from '@/components/ToshNavbar'
 import { NetworkGuardClient } from '@/components/NetworkGuardClient'
 import { FactoryGuardClient } from '@/components/FactoryGuardClient'
-import { ReferralCapture } from '@/components/ReferralCapture'
 import { SiteFooter } from '@/components/SiteFooter'
 import { InstantProjectSlot } from '@/components/directory/InstantProjectSlot'
 import { Backdrop } from '@/components/x/Backdrop'
@@ -183,7 +182,6 @@ export default async function RootLayout({
       {/* useSearchParams needs a boundary or it opts the whole tree out of
           static rendering. */}
       <Suspense fallback={null}>
-        <ReferralCapture />
       </Suspense>
       <Backdrop />
       <ToshNavbar />

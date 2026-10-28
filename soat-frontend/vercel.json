@@ -1,11 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "regions": ["hnd1"],
+  "regions": [
+    "hnd1"
+  ],
   "crons": [
-    {
-      "path": "/api/watch-ping",
-      "schedule": "11 6 * * *"
-    },
     {
       "path": "/api/v2/index",
       "schedule": "23 5 * * *"

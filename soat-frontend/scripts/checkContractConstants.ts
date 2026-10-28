@@ -1,44 +1,16 @@
 /**
- * Pins every platform constant the frontend restates to the contract that
+ * Pins every protocol constant the frontend restates to the contract that
  * defines it.
  *
- * ── Why this exists ─────────────────────────────────────────────────────────
+ * `src/lib/v2/config.ts` carries the numbers the UI computes with — the bid
+ * book's fee and fill floor, the genesis supplies, the admin launch window.
+ * A mirrored constant that nothing compares is not a constant, it is a
+ * comment: every test, every guard and `tsc` pass while the UI quotes a figure
+ * the chain does not use.
  *
- * `src/lib/contracts.ts` carries about eighteen numbers under the heading
- * "mirroring the hook" — the genesis supply split, the tier ladder, the price
- * ceiling, the TWAP window, the launch window, the genesis durations — plus
- * the hard-cap bounds and `MAX_COOLDOWN_SECONDS` from the factory, and
- * `pogQuota.ts` mirrors `MAX_SIG_VALIDITY`. Before this guard, exactly four of
- * them were checked against Solidity: `TICK_LOWER`, `TICK_UPPER`, `POOL_FEE` and
- * `TICK_SPACING`, by `scripts/checkPoolGeometry.mjs`. The rest were two
- * independent declarations of one number with nothing comparing them.
- *
- * That gap is not hypothetical. The PoG attestation TTL was the same shape — a
- * ceiling mirrored in TS, a margin worked out in one signer and not the other —
- * and it took an eth_call against a live factory to notice, because every test,
- * every guard and `tsc` passed while one of the two signers issued attestations
- * that reverted. A mirrored constant that nothing compares is not a constant, it
- * is a comment.
- *
- * ── What drift costs, by number ─────────────────────────────────────────────
- *
- * These are not display strings. `GENESIS_CLAIM_SUPPLY` and `GENESIS_LP_SUPPLY`
- * decide what a depositor is told they will receive; `TIER_COUNT`, `TIER_SIZE`
- * and `TIER_STEP_E18` are the ladder price the buy panel quotes; the genesis
- * durations go into the salt that `createLaunch` re-derives, so a wrong one
- * reverts `InvalidHookSalt` after the user has already mined; `MIN_HARD_CAP` /
- * `MAX_HARD_CAP` decide which hard caps the form accepts before the chain
- * rejects them.
- *
- * ── Ground truth ────────────────────────────────────────────────────────────
- *
- * Parsed out of `src/*.sol`. Most of these are `internal constant` with no
- * getter and no ABI entry, so reading the source is the only way to obtain them
- * without retyping them — and retyping them is the failure being prevented.
- *
- * The TS side is IMPORTED, not parsed, so what gets compared is the value the
- * app actually uses after its own arithmetic, not a literal that happens to sit
- * next to the right name.
+ * Ground truth is parsed out of `src/*.sol`, because several of these are
+ * `internal constant` with no getter. The TS side is IMPORTED, not parsed, so
+ * what gets compared is the value the app actually uses.
  *
  *   npm run guard:constants
  */
@@ -47,28 +19,12 @@ import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import {
-  GENESIS_SUPPLY, GENESIS_CLAIM_SUPPLY, GENESIS_LP_SUPPLY, BONDING_MAX,
-  TIER_COUNT, TIER_SIZE, TIER_STEP_E18, MAX_TIERS_PER_TX,
-  PRICE_CEILING_BPS, TWAP_WINDOW_SECONDS, LAUNCH_WINDOW_SECONDS, PLATFORM_TAX_BPS,
-  TAX_BPS, PLATFORM_SWAP_FEE_BPS,
-  GENESIS_DURATIONS, MIN_HARD_CAP, MAX_HARD_CAP, MAX_COOLDOWN_SECONDS,
-  MAX_POG_ALLOCATION_LIMIT,
-  ADMIN_BATCH_MAX, DEAD_ADDRESS,
-} from '../src/lib/contracts'
-import {
-  GENESIS_DURATION_FAST, GENESIS_DURATION_STANDARD, GENESIS_DURATION_SLOW,
-} from '../src/app/lib/hookAddress'
-import { SIG_VALIDITY_SECONDS } from '../src/app/lib/pogQuota'
 import { V2 } from '../src/lib/v2/config'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
-// `contracts.ts` describes the v1 hooks still on chain, so it is held to the
-// v1 sources frozen at the v2 cut-over; the v2 mirrors are checked against `src/`.
-const HOOK = 'legacy/src-v1/ToshLaunchpadHook.sol'
-const FACTORY = 'legacy/src-v1/ToshFactory.sol'
 const V2_HOOK = 'src/ToshLaunchpadHook.sol'
 const V2_BOOK = 'src/ToshBidBook.sol'
+const CURVE = 'src/libraries/GenesisCurve.sol'
 
 const problems: string[] = []
 const fail = (m: string) => problems.push(m)
@@ -182,58 +138,6 @@ interface Field {
 }
 
 const FIELDS: Field[] = [
-  { sol: 'GENESIS_SUPPLY', file: HOOK, ts: GENESIS_SUPPLY, where: 'contracts.GENESIS_SUPPLY',
-    cost: 'the genesis allocation shown to depositors is not the one minted' },
-  { sol: 'GENESIS_CLAIM_SUPPLY', file: HOOK, ts: GENESIS_CLAIM_SUPPLY, where: 'contracts.GENESIS_CLAIM_SUPPLY',
-    cost: 'every claim estimate is wrong, in the direction of over-promising' },
-  { sol: 'GENESIS_LP_SUPPLY', file: HOOK, ts: GENESIS_LP_SUPPLY, where: 'contracts.GENESIS_LP_SUPPLY',
-    cost: 'the quoted opening price p0 = lpNative/GENESIS_LP_SUPPLY is wrong' },
-  { sol: 'BONDING_MAX', file: HOOK, ts: BONDING_MAX, where: 'contracts.BONDING_MAX',
-    cost: 'the ladder progress bar and the mintable ceiling disagree with the hook' },
-  { sol: 'TIER_COUNT', file: HOOK, ts: BigInt(TIER_COUNT), where: 'contracts.TIER_COUNT',
-    cost: 'the ladder has a different number of shelves than the buy panel prices' },
-  { sol: 'TIER_SIZE', file: HOOK, ts: TIER_SIZE, where: 'contracts.TIER_SIZE',
-    cost: 'each shelf sells a different quantity than quoted' },
-  { sol: 'TIER_STEP_E18', file: HOOK, ts: BigInt(TIER_STEP_E18), where: 'contracts.TIER_STEP_E18',
-    cost: 'quoted shelf prices diverge from the hook, compounding over 4000 shelves' },
-  { sol: 'MAX_TIERS_PER_TX', file: HOOK, ts: BigInt(MAX_TIERS_PER_TX), where: 'contracts.MAX_TIERS_PER_TX',
-    cost: 'the panel builds a mint that crosses more shelves than one tx allows, and reverts' },
-  { sol: 'PRICE_CEILING_BPS', file: HOOK, ts: BigInt(PRICE_CEILING_BPS), where: 'contracts.PRICE_CEILING_BPS',
-    cost: 'the UI mis-states where the ladder stops undercutting the pool' },
-  { sol: 'TWAP_WINDOW', file: HOOK, ts: BigInt(TWAP_WINDOW_SECONDS), where: 'contracts.TWAP_WINDOW_SECONDS',
-    cost: 'the displayed TWAP window is not the one the ceiling is measured over' },
-  { sol: 'LAUNCH_WINDOW', file: HOOK, ts: LAUNCH_WINDOW_SECONDS, where: 'contracts.LAUNCH_WINDOW_SECONDS',
-    cost: 'the refund/launch countdown expires at a different moment than the hook' },
-  { sol: 'DURATION_FAST', file: HOOK, ts: GENESIS_DURATIONS.fast, where: 'contracts.GENESIS_DURATIONS.fast',
-    cost: 'the mined salt encodes a duration createLaunch will not accept — InvalidHookSalt' },
-  { sol: 'DURATION_STANDARD', file: HOOK, ts: GENESIS_DURATIONS.standard, where: 'contracts.GENESIS_DURATIONS.standard',
-    cost: 'the mined salt encodes a duration createLaunch will not accept — InvalidHookSalt' },
-  { sol: 'DURATION_SLOW', file: HOOK, ts: GENESIS_DURATIONS.slow, where: 'contracts.GENESIS_DURATIONS.slow',
-    cost: 'the mined salt encodes a duration createLaunch will not accept — InvalidHookSalt' },
-  // Do not confuse this with `TAX_BPS`, which is also 100 and is a different
-  // levy on a different flow — see the note in ToshLaunchpadHook.sol. The name
-  // in `sol` is matched whole, so the two cannot cross-resolve.
-  { sol: 'PLATFORM_TAX_BPS', file: HOOK, ts: BigInt(PLATFORM_TAX_BPS), where: 'contracts.PLATFORM_TAX_BPS',
-    cost: 'the detail page publishes the wrong split of a shelf mint — it states, as a figure, '
-      + "what share of a buyer's ETH reaches the project" },
-  // The three below are all disclosures of what trading costs. They are the
-  // numbers a user is owed before they sign, so drift here is not a cosmetic
-  // bug — it is the interface quoting a fee the chain does not charge.
-  { sol: 'TAX_BPS', file: HOOK, ts: BigInt(TAX_BPS), where: 'contracts.TAX_BPS',
-    cost: 'the project page understates or overstates total trader friction, which it '
-      + 'publishes as a single percentage next to a buy button' },
-  { sol: 'PLATFORM_SWAP_FEE_BPS', file: HOOK, ts: BigInt(PLATFORM_SWAP_FEE_BPS), where: 'contracts.PLATFORM_SWAP_FEE_BPS',
-    cost: "the buy leg's split is misattributed — the share called platform revenue is not the one the hook pays out" },
-  { sol: 'MIN_HARD_CAP', file: FACTORY, ts: MIN_HARD_CAP, where: 'contracts.MIN_HARD_CAP',
-    cost: 'the launch form accepts a hard cap the factory rejects with HardCapTooLow, or blocks one it allows' },
-  { sol: 'MAX_HARD_CAP', file: FACTORY, ts: MAX_HARD_CAP, where: 'contracts.MAX_HARD_CAP',
-    cost: 'the launch form accepts a hard cap the factory rejects with HardCapTooHigh' },
-  { sol: 'MAX_POG_ALLOCATION_LIMIT', file: FACTORY, ts: MAX_POG_ALLOCATION_LIMIT, where: 'contracts.MAX_POG_ALLOCATION_LIMIT',
-    cost: 'the admin panel accepts a wallet cap the factory reverts on with PogLimitTooHigh' },
-  { sol: 'MAX_COOLDOWN', file: FACTORY, ts: BigInt(MAX_COOLDOWN_SECONDS), where: 'contracts.MAX_COOLDOWN_SECONDS',
-    cost: 'the admin panel offers a cooldown the factory reverts on' },
-  { sol: 'MAX_SIG_VALIDITY', file: FACTORY, ts: BigInt(SIG_VALIDITY_SECONDS), where: 'pogQuota.SIG_VALIDITY_SECONDS',
-    cost: 'attestations are signed against the wrong ceiling — SignatureTooLong on every registration' },
   { sol: 'FEE_BPS', file: V2_BOOK, ts: V2.FEE_BPS, where: 'v2/config.V2.FEE_BPS',
     cost: 'the bid form locks too little escrow and placeBid pulls more than was approved' },
   { sol: 'FILL_FLOOR_BPS', file: V2_BOOK, ts: V2.FILL_FLOOR_BPS, where: 'v2/config.V2.FILL_FLOOR_BPS',
@@ -244,6 +148,10 @@ const FIELDS: Field[] = [
     cost: 'the launch panel tells the public it may launch while the hook still reserves it for the NFT holder' },
   { sol: 'GENESIS_SUPPLY', file: V2_HOOK, ts: V2.GENESIS_SUPPLY, where: 'v2/config.V2.GENESIS_SUPPLY',
     cost: 'the v2 progress bar measures sales against the wrong supply' },
+  { sol: 'SALE_SUPPLY', file: CURVE, ts: V2.SALE_SUPPLY, where: 'v2/config.V2.SALE_SUPPLY',
+    cost: 'the genesis buy panel prices against a curve that sells a different supply' },
+  { sol: 'FUND_BPS', file: V2_HOOK, ts: V2.FUND_BPS, where: 'v2/config.V2.FUND_BPS',
+    cost: 'the raise breakdown misstates the share routed to the project fund' },
 ]
 
 for (const f of FIELDS) {
@@ -257,67 +165,10 @@ for (const f of FIELDS) {
   }
 }
 
-// ─── Second copies of the genesis durations ──────────────────────────────────
-// `hookAddress.ts` keeps its own set, because address prediction needs them as
-// bigints. Two copies of three numbers in the same package is how the ladder
-// guard would go green while the launch path stayed broken.
-//
-// THE CONSEQUENCE GOT WORSE, not better, when the address miner was removed.
-// A duration mismatch used to re-roll the CREATE2 address, fail Uniswap V4's
-// permission mask and revert `InvalidHookSalt`. Infinity has no mask, so the
-// launch now succeeds at an address the UI never predicted, with the wrong
-// genesis window baked into the clone's immutable args.
-const PREDICTOR: Array<[string, bigint, bigint]> = [
-  ['fast', GENESIS_DURATION_FAST, GENESIS_DURATIONS.fast],
-  ['standard', GENESIS_DURATION_STANDARD, GENESIS_DURATIONS.standard],
-  ['slow', GENESIS_DURATION_SLOW, GENESIS_DURATIONS.slow],
-]
-for (const [label, predictor, contractsCopy] of PREDICTOR) {
-  if (predictor !== contractsCopy) {
-    fail(
-      `genesis duration "${label}": HookAddress says ${predictor}, contracts says ${contractsCopy}.\n`
-      + '    Consequence: the address is predicted against one duration and the launch is '
-      + 'submitted with the other, so the hook deploys somewhere the UI cannot name — '
-      + 'silently, since there is no permission mask left to reject it.')
-  }
-}
-
-// ─── The admin batch cap, which is a literal in a require ────────────────────
-// Not a named constant on-chain, so it is matched where it is enforced. The
-// admin panel batches exactly this many rows per transaction; if the contract
-// allows fewer, every full batch reverts with "Batch too large".
-{
-  const m = source(FACTORY).match(/users\.length\s*<=\s*(\d+)/)
-  if (!m) {
-    fail(
-      `${FACTORY}: could not find the \`users.length <= N\` batch bound that `
-      + 'contracts.ADMIN_BATCH_MAX mirrors. If the bound moved, point this guard at it.')
-  } else if (BigInt(m[1]) !== BigInt(ADMIN_BATCH_MAX)) {
-    fail(
-      `ADMIN_BATCH_MAX: ${FACTORY} allows ${m[1]} per call, contracts says ${ADMIN_BATCH_MAX}.\n`
-      + '    Consequence: the admin panel builds blacklist batches the factory reverts on.')
-  }
-}
-
-// ─── The burn address ────────────────────────────────────────────────────────
-{
-  const m = source(HOOK).match(/constant\s+DEAD_ADDRESS\s*=\s*(0x[0-9a-fA-F]{40})/)
-  if (!m) {
-    fail(`${HOOK}: no \`constant DEAD_ADDRESS\` found.`)
-  } else if (m[1].toLowerCase() !== DEAD_ADDRESS.toLowerCase()) {
-    fail(
-      `DEAD_ADDRESS: ${HOOK} says ${m[1]}, contracts says ${DEAD_ADDRESS}.\n`
-      + '    Consequence: the UI reports burns to an address that never received them.')
-  }
-}
-
 if (problems.length > 0) {
   console.error('\n[checkContractConstants] FAILED — the frontend no longer mirrors the contracts:\n')
   for (const p of problems) console.error('  • ' + p + '\n')
   process.exit(1)
 }
 
-console.log(
-  `[checkContractConstants] OK — ${FIELDS.length} constants, 3 genesis durations, `
-  + 'the batch cap and the burn address all match src/*.sol '
-  + '(pool geometry is covered by checkPoolGeometry.mjs)')
+console.log(`[checkContractConstants] OK — ${FIELDS.length} constants match src/*.sol`)

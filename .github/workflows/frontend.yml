@@ -4,9 +4,6 @@ permissions: {}
 
 on:
   push:
-    # See test.yml: `watcher-state` is the watcher's checkpoint branch and holds
-    # no frontend source. Building it twice an hour is pure cost.
-    branches-ignore: [watcher-state]
   pull_request:
   workflow_dispatch:
 
@@ -22,11 +19,6 @@ jobs:
       contents: read
 
     env:
-      # `src/lib/contracts.ts` throws at import time without this, which would
-      # fail the build during prerender. CI never talks to a chain, so any
-      # syntactically valid non-precompile address works; it is deliberately
-      # NOT a real deployment so a leaked CI log cannot be mistaken for one.
-      NEXT_PUBLIC_FACTORY_ADDRESS: "0x1111111111111111111111111111111111111111"
       # Must be a chain `src/lib/chain.ts` registers. It no longer falls back to
       # a default for an id it does not know — it throws — so a stale value here
       # fails the build rather than quietly building against the wrong network.
@@ -37,29 +29,6 @@ jobs:
       # a separate leftover — so the throw that was supposed to be loud was
       # sitting behind a louder one.
       NEXT_PUBLIC_CHAIN_ID: "97"
-      # Same throw-at-import contract as the factory address above, and the
-      # reason this job was red for 18 consecutive runs: the BEM move made
-      # `NEXT_PUBLIC_QUOTE_ASSET` required with no per-chain default — correctly,
-      # since the app must not approve one token while the factory pulls another
-      # — and nothing added it here. Every local check stayed green because every
-      # developer has it in .env.local, so the first thing that noticed was
-      # `next build` collecting page data for /_not-found.
-      #
-      # A distinct placeholder from the factory's, rather than the same
-      # `0x1111…`: two addresses that differ make a CI log say which variable a
-      # call was aimed at, and the quote asset being the factory is not a shape
-      # worth teaching the build to accept.
-      NEXT_PUBLIC_QUOTE_ASSET: "0x2222222222222222222222222222222222222222"
-      # A mock ticker, not `WBNB`/`BNB`. The chain id above is 97 and the
-      # address a placeholder; naming the real asset would have this job build
-      # copy claiming it on a testnet id, which is the exact class of quiet lie
-      # checkChainCopy exists to fail on. Was `mBEM` while the quote was BEM.
-      NEXT_PUBLIC_QUOTE_SYMBOL: "mWBNB"
-      # Required for any token `quoteAssets.ts` does not know. 18, because the
-      # factory's hard-cap and PoG bounds are 18-decimal literals now and
-      # `guard:constants` compares them against `n * QUOTE_UNIT`; 8 (the BEM
-      # mock) fails it.
-      NEXT_PUBLIC_QUOTE_DECIMALS: "18"
       # Monitoring stays off in CI: no DSN means the Sentry SDK initialises
       # nothing, and no build ever ships a source map to a real project.
       NEXT_PUBLIC_SENTRY_DSN: ""
@@ -68,8 +37,7 @@ jobs:
       # /api/projects/lookup without them — a build that only ever succeeded
       # because every developer has a populated .env.local.
       #
-      # Same reasoning as the factory address above: createClient() needs a
-      # syntactically valid URL and nothing more, CI never opens the socket,
+      # createClient() needs a syntactically valid URL and nothing more, CI never opens the socket,
       # and the host is deliberately one that does not resolve so no run can
       # touch a real registry.
       NEXT_PUBLIC_SUPABASE_URL: "https://ci-placeholder.supabase.co"
@@ -126,10 +94,8 @@ jobs:
       # — so nothing cross-checked the two.
       #
       # Reads the ambient environment, which is how this job and Vercel both
-      # supply these; a dotenv-only check is blind to both. CI's placeholder
-      # factory is deliberately not a real deployment, so it is unrecognised
-      # and not asserted — what fails here is a real address under the wrong id,
-      # including the id being unset, since chain.ts then defaults to 97.
+      # supply these; a dotenv-only check is blind to both. CI sets no v2
+      # address, so there is nothing to cross-check beyond the id.
       - name: Chain id and contract addresses are the same chain
         run: npm run guard:chainaddr
 
@@ -155,50 +121,18 @@ jobs:
       - name: Supabase queries carry a deadline
         run: npm run guard:supabase
 
-      # The LP panel quotes deposits from fixed-point maths hand-ported out of
-      # infinity-core's SqrtPriceMath and infinity-periphery's LiquidityAmounts.
-      # The arithmetic is bit-identical to the Uniswap V4 port it replaced
-      # (measured, not assumed); a drift here does not throw: the panel just
-      # quotes an amount the pool will refuse, so the mint reverts on
-      # `amount1Max` after the user has already signed two Permit2 approvals.
-      - name: Infinity CL fixed-point maths matches Solidity vectors
-        run: npm run guard:clmath
-
-      # posm decodes `modifyLiquidities` payloads with hard-coded calldata
-      # offsets and a decoder that reverts on any non-canonical abi offset, so a
-      # reordered or rewidened param produces `SliceOutOfBounds` — an opaque
-      # revert from a wallet popup with nothing failing at compile time.
-      #
-      # This half runs the real viem encoder and checks the bytes it emits. The
-      # offsets it expects are pinned to the vendored periphery Solidity by
-      # scripts/checkLpActionsAbi.mjs over in test.yml, which is the job that
-      # has `lib/`. Neither half is sufficient alone.
-      - name: posm action payloads have the layout the decoder reads
-        run: npm run guard:lpactions
-
-      # `contracts.ts` restates ~18 numbers the contracts define — the genesis
-      # supply split, the tier ladder, the price ceiling, the TWAP and launch
-      # windows, the genesis durations — plus the factory's MIN_SOFT_CAP_PROD and
-      # MAX_COOLDOWN, and pogQuota.ts mirrors MAX_SIG_VALIDITY. Only the four
-      # pool-geometry values were checked against Solidity (checkPoolGeometry.mjs,
-      # over in test.yml); the rest were two independent declarations of one
-      # number. Nothing here throws on drift — the UI just quotes a supply that
-      # is not minted, or mines a salt `createLaunch` rejects as InvalidHookSalt.
-      # Added after the PoG attestation TTL drifted this exact way and only an
-      # eth_call against a live factory caught it.
+      # `lib/v2/config.ts` restates the bid book's fee and fill floor, the genesis
+      # supplies and the admin launch window. Nothing throws on drift — the UI
+      # just quotes a figure the chain does not use — so they are compared
+      # against `src/*.sol` here.
       - name: Frontend constants mirror the contracts
         run: npm run guard:constants
 
-      # The launch page pre-flights `createLaunch` with `simulateContract` and
-      # then sends the real one from `useTosh`. When the launch fee stopped
-      # being a BEM `transferFrom` and became native BNB, the write grew a
-      # `value` and the pre-flight did not — so the simulation checked a
-      # transaction nobody would send, the factory saw `msg.value == 0`, and
-      # every launch died on `InsufficientLaunchFee` before the wallet opened.
-      # tsc allows it (viem's `value` is optional), eslint has no opinion, and
-      # the e2e script drives the contract directly so it never touches the
-      # page. Payability is read from the shipped ABIs, so a new payable
-      # function is covered the day it lands.
+      # A payable call without a `value` is a different transaction than the one
+      # meant, and a `simulateContract` pre-flight of it checks a transaction
+      # nobody will send. tsc allows it (viem's `value` is optional) and eslint
+      # has no opinion. Payability is read from the shipped v2 ABIs, so a new
+      # payable function is covered the day it lands.
       - name: Calls to payable functions send a value
         run: npm run guard:payable
 
@@ -211,14 +145,6 @@ jobs:
       # the config against itself.
       - name: Wrong-network checks read the wallet, not the config
         run: npm run guard:walletchain
-
-      # `fmt` / `fmtFull` default to 18 decimals. After the quote asset moved
-      # to 8-decimal BEM, headline prices and commission hints kept calling
-      # the default, so every figure was understated by 10^10 and still
-      # looked like a price. `fmtQuote` exists for this; this guard fails
-      # any call site that goes back to the default on a quote-priced name.
-      - name: Quote amounts use the quote scale
-        run: npm run guard:quoteformat
 
       # `PartialDictionary` already stops a locale inventing or misspelling a
       # key, so this is here for the failures a type cannot express: a translator
@@ -260,16 +186,6 @@ jobs:
       # Every suite here is mutation-tested — the original defect was
       # reintroduced and the tests were confirmed to fail — so they pin
       # behaviour rather than merely covering lines.
-      #
-      # `scripts/` carries its own package.json, and one of the suites below
-      # spawns `rotateGasRate.mjs template` to prove the CLI parses the signed
-      # message out of this tree rather than keeping its own copy. Without this
-      # step that test failed on a missing `ethers` — a red check that named the
-      # dependency instead of the drift it exists to catch, which is the same as
-      # not having the check.
-      - name: Install script dependencies
-        working-directory: scripts
-        run: npm ci
 
       - name: Server behaviour tests
         run: |
@@ -442,10 +358,15 @@ jobs:
       # (+7), the indexer itself against real ABI-encoded logs (+11:
       # idempotent replay, cursor held on a failed write, PASS_SPAN and
       # LOG_CHUNK bounds, bids re-read from state), and bidMath edges (+4).
+      #
+      # 744 -> 256, deliberately: the v1 frontend was deleted. Its panels
+      # (deposit, refund, claim, bonding, liquidity, referral, PoG), their
+      # routes and their lib code took their tests with them; every v2 suite
+      # above is still collected.
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=744
+          floor=256
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the

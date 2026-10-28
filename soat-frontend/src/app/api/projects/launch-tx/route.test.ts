@@ -107,7 +107,7 @@ vi.mock('@/app/lib/serverRpc', () => ({
 }))
 
 beforeEach(() => {
-  vi.stubEnv('NEXT_PUBLIC_FACTORY_ADDRESS', '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0')
+  vi.stubEnv('NEXT_PUBLIC_V2_FACTORY_BNB', '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0')
   vi.stubEnv('NEXT_PUBLIC_CHAIN_ID', '31337')
   vi.stubEnv('UPSTASH_REDIS_REST_URL', undefined as unknown as string)
   calls = { reads: [], scans: [], publicScans: [], blocks: [], addresses: [] }
@@ -150,9 +150,9 @@ describe('GET /api/projects/launch-tx', { timeout: 20_000 }, () => {
     expect(calls.blocks).toEqual([])
   })
 
-  it('scans the v2 factories too, which emit the same LaunchCreated', async () => {
+  it('scans both v2 factories in one filter', async () => {
     const v2 = '0x5FbDB2315678afecb367f032d93F642f64180aa3'
-    vi.stubEnv('NEXT_PUBLIC_V2_FACTORY_BNB', v2)
+    vi.stubEnv('NEXT_PUBLIC_V2_FACTORY_USDT', v2)
     expect((await get(HOOK)).status).toBe(200)
     expect(calls.addresses[0]).toContain(v2.toLowerCase())
     expect(calls.addresses[0]).toContain('0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0')

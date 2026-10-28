@@ -16,8 +16,7 @@
  * `scripts/checkChainCopy.mjs` already solved the "run TS without a TS runner"
  * problem here by transpiling with the `typescript` package this repo already
  * depends on. It only needed one leaf module, so it could write a single temp
- * file. These two guards pull in a graph (`lpActions` → `contracts` → `abis`,
- * `chain`), so the same trick is applied through module hooks instead: the
+ * file. The guards here pull in a graph (`contracts` → `chain`, `v2/abis`), so the same trick is applied through module hooks instead: the
  * transpile is identical, it just covers every `.ts` reached transitively.
  *
  * Deliberately NOT `tsx`: adding a dependency to run a check is a strictly
@@ -31,8 +30,8 @@
  *   • the `@/*` → `./src/*` path alias from tsconfig.json, read from that file
  *     rather than restated here so the two cannot drift,
  *   • type stripping, via `ts.transpileModule`,
- *   • the one env var `src/lib/contracts.ts` throws on at import time, so a
- *     guard runs from a clean checkout with no setup step.
+ *   • a placeholder chain id, so a guard runs from a clean checkout with no
+ *     setup step.
  *
  * Node's own `--experimental-strip-types` covers only the last-but-two of
  * those, which is why it is not enough on its own.
@@ -49,40 +48,8 @@ const ts = require('typescript')
 
 const ROOT = resolvePath(fileURLToPath(import.meta.url), '../..')
 
-/**
- * `src/lib/contracts.ts` throws at import time without this, and every guard
- * here reaches it transitively. None of them read the value — they check byte
- * layouts and fixed-point maths — so a placeholder is supplied rather than
- * making each caller export one, the same way checkChainCopy.mjs supplies the
- * `NEXT_PUBLIC_CHAIN_ID` it needs.
- *
- * Only when unset, so `frontend.yml`'s job-level value still wins. Matches the
- * address that workflow uses: syntactically valid, deliberately not a real
- * deployment, so a leaked log cannot be mistaken for one.
- */
-process.env.NEXT_PUBLIC_FACTORY_ADDRESS ||= '0x1111111111111111111111111111111111111111'
+/** `chain.ts` resolves a chain at import time; no guard reads which one. */
 process.env.NEXT_PUBLIC_CHAIN_ID ||= '97'
-
-/**
- * The quote asset, which `contracts.ts` also throws on and which — unlike the
- * factory — one guard genuinely reads.
- *
- * `checkLpActions.ts` encodes real `modifyLiquidities` payloads, and the quote
- * asset is `currency0` inside every `PoolKey` in them, so the value appears in the
- * bytes being checked. It is still a placeholder rather than the real BEM address,
- * because the guard verifies LAYOUT — which word holds which field — and a real
- * address would invite the mistake of treating the guard as a check on the
- * deployment. `guard:constants` is the one that reconciles against a live factory.
- *
- * `0x2222…` and not `0x1111…`: `toshPoolKey` refuses a token that does not sort
- * above the quote asset, so the two placeholders have to be ordered, and a guard
- * that tripped that refusal would look like a payload bug rather than a fixture
- * one. The token placeholder each guard uses sits above this.
- */
-process.env.NEXT_PUBLIC_QUOTE_ASSET ||= '0x2222222222222222222222222222222222222222'
-// A placeholder is not in the known-asset table, so its decimals must be stated.
-// 18, matching the factory's `QUOTE_UNIT`, which `guard:constants` reconciles.
-process.env.NEXT_PUBLIC_QUOTE_DECIMALS ||= '18'
 
 /**
  * Path aliases, read from tsconfig so a renamed alias fails loudly here

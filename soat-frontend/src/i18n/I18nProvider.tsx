@@ -61,7 +61,7 @@ export function I18nProvider({
  * The active dictionary.
  *
  * Returns the whole object rather than a `t('a.b')` lookup function on purpose:
- * `t.refund.noneReason` is checked by the compiler, so a key that does not exist
+ * `t.v2.placeAction` is checked by the compiler, so a key that does not exist
  * cannot be reached by a typo, and deleting a string from `en.ts` breaks every
  * reference to it at build time. A string-path lookup gives up all of that in
  * exchange for slightly shorter call sites.

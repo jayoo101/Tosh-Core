@@ -7,8 +7,6 @@ import { WagmiProvider, createConfig, http, fallback } from 'wagmi'
 import type { ToasterProps } from 'react-hot-toast'
 import { targetChain, BSC_ID, BSC_TESTNET_ID, FOUNDRY_CHAIN_ID } from '@/lib/chain'
 import { makeConnectors } from '@/lib/wallets'
-import { PogLookupProvider } from '@/components/ProjectTerminal/PogLookupProvider'
-import { LEGACY_V1 } from '@/lib/legacy'
 import { WalletPickerProvider } from '@/components/WalletPicker'
 
 // ssr: false — react-hot-toast maintains an internal toast store; the SSR
@@ -156,7 +154,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
         <WalletPickerProvider>
-          {LEGACY_V1 ? <PogLookupProvider>{children}</PogLookupProvider> : children}
+          {children}
         </WalletPickerProvider>
         {/* THE toaster.  Mounted here rather than in layout.tsx for two
             reasons: layout.tsx is a server component, so hosting it there

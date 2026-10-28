@@ -3,8 +3,7 @@
  * belong to the same chain.
  *
  * PM-C7 shipped a production deployment that was half cut over. The operator
- * set `NEXT_PUBLIC_FACTORY_ADDRESS` and `NEXT_PUBLIC_TREASURY_ADDRESS` to the
- * canonical mainnet contracts and left `NEXT_PUBLIC_CHAIN_ID` at 46630, so the
+ * set the factory and treasury addresses to the canonical mainnet contracts and left `NEXT_PUBLIC_CHAIN_ID` at 46630, so the
  * live site pointed a testnet wallet connection at addresses that exist only on
  * 4663. On 46630 the mainnet factory has no code at all: every read returned
  * empty, the directory rendered nothing, and a `createLaunch` with ETH attached
@@ -74,14 +73,17 @@ import { retiredChain } from './lib/retiredChains.mjs'
 installFailureExit()
 
 const BROADCAST = join('..', 'broadcast')
-const TRACKED = new Set(['ToshFactory', 'ToshLadderTreasury'])
+const TRACKED = new Set(['ToshFactory', 'ToshBidBook', 'ToshHookLens'])
 
 /** Env keys that name a contract, mapped to the artifact that should be there. */
 const ADDRESS_KEYS = {
-  NEXT_PUBLIC_FACTORY_ADDRESS: 'ToshFactory',
-  NEXT_PUBLIC_TREASURY_ADDRESS: 'ToshLadderTreasury',
-  NEXT_PUBLIC_LADDER_TREASURY: 'ToshLadderTreasury',
+  NEXT_PUBLIC_V2_FACTORY_BNB: 'ToshFactory',
+  NEXT_PUBLIC_V2_FACTORY_USDT: 'ToshFactory',
+  NEXT_PUBLIC_V2_BIDBOOK: 'ToshBidBook',
+  NEXT_PUBLIC_V2_LENS: 'ToshHookLens',
 }
+
+const LIVE = process.argv.includes('--url') || Boolean(process.env.DEPLOYMENT_URL)
 
 let failures = 0
 const fail = (msg) => { failures++; console.log(`FAIL  ${msg}`) }
@@ -188,15 +190,16 @@ function buildIndex() {
     }
   }
 
+  const report = LIVE ? fail : note
   if (!existsSync(BROADCAST)) {
-    fail(`${BROADCAST} does not exist — this guard cannot attribute any address to any chain`)
+    report(`${BROADCAST} does not exist — no deployment is recorded, so no address can be attributed to a chain`)
     return { byAddress, byChain, superseded }
   }
   walk(BROADCAST)
   walkHistory(BROADCAST)
 
   if (byAddress.size === 0) {
-    fail(`no ToshFactory / ToshLadderTreasury address found under ${BROADCAST} — the parser or the logs are wrong`)
+    report(`no ToshFactory / ToshBidBook / ToshHookLens address found under ${BROADCAST}`)
   }
   return { byAddress, byChain, superseded }
 }

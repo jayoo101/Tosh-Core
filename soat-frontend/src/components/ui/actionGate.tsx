@@ -10,33 +10,26 @@
  * The canonical progression:
  *
  *   Connect Wallet → Switch Network → «domain blockers, in revert order»
- *                  → Deposit / Mint / Launch / Refund / Claim
+ *                  → Buy / Bid / Mint / Launch / Withdraw
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * THE ORDERING INVARIANT — read this before writing a blocker list.
  *
  * A blocker list must name the condition that would ACTUALLY revert the
  * transaction, which means it must be in the same order the contract checks.
- * `factory.deposit` rejects in this sequence and no other:
- *
- *      blacklist  →  missing PoG quota  →  active cooldown  →  quota exceeded
+ * `hook.buyGenesis` rejects in its own fixed sequence — window closed or sold out, then
+ * Agent ID not eligible, then per-ID cap reached — and the blockers must follow it.
  *
  * Naming a later condition than the true one is not a cosmetic slip.  Tell a
- * blacklisted wallet to "run the PoG scan" and it will sign a transaction that
- * reverts; tell it to "wait for your window" and it waits forever.  Note also
- * that `factory.eligibility` collapses the first three into the same
- * `(false, 0, 0)` an exhausted window produces — a zero `remainingQuota` under
- * a live cooldown means UNREADABLE, not exhausted.
+ * wallet without an Agent ID that it has hit its cap and it waits for a reset
+ * that never comes; tell it to retry when the window is closed and it signs a
+ * transaction that reverts.
  *
  * `blockersInRevertOrder` is an ordered array, and `revertOrder(...)` is how
  * you build one.  A `Set` or a record keyed by name would be the wrong shape
  * precisely because neither can express the thing that matters here.
  * ─────────────────────────────────────────────────────────────────────────────
- *
- * REPLACES: the `armed = !a && !b && !c && …` chains plus the nested ternary
- * `lockedLabel` ladders in GenesisPanel and BondingPanel, the `step` IIFE in
- * LiquidityPanel, the `Action` IIFE in launch/page's LaunchCTA, and
- * `WriteAccessContext` + `WriteButton`'s owner gate in admin/page.
+
  */
 
 import { createContext, useContext, useMemo, type ReactNode } from 'react'
@@ -86,7 +79,7 @@ export interface ActionBlocker {
   /**
    * Makes the blocker actionable: the button stays enabled and clicking it
    * runs this instead of the main action.  For blockers the user can clear
-   * themselves — "Run the gas-proof scan", "Approve PERMIT2".
+   * themselves — "Approve USDT", "Wrap BNB".
    */
   readonly resolve?: () => void
 }
@@ -201,7 +194,7 @@ export type ActionVerdict =
     }
 
 export interface ActionGateOptions {
-  /** The terminal label once nothing blocks: `'Deposit'`, `'Claim refund'`. */
+  /** The terminal label once nothing blocks: `'Buy'`, `'Launch'`. */
   action: string
   /** What fires on a `ready` click. */
   onAct: () => void

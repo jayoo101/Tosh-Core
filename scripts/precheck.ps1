@@ -10,8 +10,7 @@
 #      running this in; the guard's header names them)
 #   2. forge fmt --check    (style drift)
 #   3. forge build          (compile-clean)
-#   4. cross-language tuple guards (PoG digest, pool geometry, salt miner,
-#      Infinity posm ABI, Infinity router tuple, lint findings, doc symbols)
+#   4. forge lint findings and doc symbols
 #   5. node scripts/checkPublicEnv.mjs  (NEXT_PUBLIC_* really reaches the browser)
 #   6. node scripts/checkServerRpc.mjs  (no RPC endpoint chosen without a chain id)
 #   7. node scripts/checkSupabase.mjs   (every Supabase query carries a deadline)
@@ -20,8 +19,7 @@
 # Everything here also runs in CI (.github/workflows/test.yml). This script is
 # the fast local copy, not the authority — do not add a check here instead of
 # there. A guard only this script runs is a guard that only runs on Windows,
-# only for whoever remembers, which is how the salt-miner guard managed to be
-# red and unnoticed long enough to ship.
+# only for whoever remembers.
 #
 # Usage:
 #   ./scripts/precheck.ps1               # fast checks (~5s after warm cache)
@@ -83,37 +81,7 @@ Step "forge build" {
     forge build
 }
 
-# 4. Cross-language tuple guards. These are the checks that catch a change
-#    which compiles on both sides and passes every test while being wrong on
-#    chain — the class that has actually shipped from this repository before.
-#    They cost milliseconds, so there is no reason to make them opt-in.
-Step "node scripts/checkPogDigestTuple.mjs" {
-    node scripts/checkPogDigestTuple.mjs
-}
-
-Step "node scripts/checkPoolGeometry.mjs" {
-    node scripts/checkPoolGeometry.mjs
-}
-
-Step "node scripts/checkCloneInitcodeTuple.mjs" {
-    node scripts/checkCloneInitcodeTuple.mjs
-}
-
-# The LP panel hand-encodes Infinity posm payloads. This half pins the offsets
-# and opcodes against lib/infinity-periphery; the TypeScript encoder half lives
-# in soat-frontend and is run by frontend.yml. Both must stay wired — a
-# five-member V4 key still encodes and still hashes to a pool nobody opened.
-Step "node scripts/checkLpActionsAbi.mjs" {
-    node scripts/checkLpActionsAbi.mjs
-}
-
-# Pins the hand-rolled UniversalRouter tuple against the deployed Infinity
-# decoder. A V4-shaped tuple is well-formed and wrong; this is the check that
-# names the collision rather than letting a swap revert in a wallet popup.
-Step "node scripts/checkV4RouterTuple.mjs" {
-    node scripts/checkV4RouterTuple.mjs
-}
-
+# 4. Source-level triage that compiles cannot see.
 # The narrowing-cast triage is a SET, not a count. forge lint here, not in CI
 # only — two red builds this port shipped were guards this script did not run.
 Step "node scripts/checkLintFindings.mjs" {
