@@ -1,28 +1,31 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
-import type { Address } from 'viem'
+import { zeroAddress, type Address } from 'viem'
 import { usePublicClient, useReadContract, useReadContracts } from 'wagmi'
 
 import { TARGET_CHAIN_ID } from '@/lib/chain'
-import { V2_BIDBOOK_ABI, V2_HOOK_ABI, V2_LENS_ABI } from './abis'
-import { V2_BIDBOOK, V2_ENABLED, V2_FROM_BLOCK, V2_LENS, isV2Factory } from './config'
+import { V2_BIDBOOK_ABI, V2_LENS_ABI } from './abis'
+import { V2_BIDBOOK, V2_ENABLED, V2_FROM_BLOCK, V2_LENS } from './config'
 import type { LiveBid } from './bidMath'
 
 const LOG_CHUNK = 5_000n
 
-/** `true` when `hook` was created by a v2 factory, `undefined` while unknown. */
+/** `true` when a v2 factory registered `hook`. Ask BidBook, not the hook: a
+ *  spoofed contract can return our factory from `factory()` and harvest an
+ *  approve. `factoryOf` reads `registeredHooks`, which only `createLaunch` writes. */
 export function useIsV2Hook(hook: Address | undefined): boolean | undefined {
   const { data, isError } = useReadContract({
-    address: hook,
-    abi: V2_HOOK_ABI,
-    functionName: 'factory',
+    address: V2_BIDBOOK,
+    abi: V2_BIDBOOK_ABI,
+    functionName: 'factoryOf',
+    args: hook ? [hook] : undefined,
     chainId: TARGET_CHAIN_ID,
-    query: { enabled: V2_ENABLED && hook !== undefined, staleTime: Infinity },
+    query: { enabled: V2_ENABLED && hook !== undefined && V2_BIDBOOK !== undefined, staleTime: Infinity },
   })
   if (!V2_ENABLED || isError) return false
   if (data === undefined) return undefined
-  return isV2Factory(data)
+  return data !== zeroAddress
 }
 
 export function useGenesisState(hook: Address | undefined) {

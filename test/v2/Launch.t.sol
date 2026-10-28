@@ -223,6 +223,30 @@ contract LaunchTest is V2Base {
         assertTrue(address(t2) != address(token));
     }
 
+    function test_quoteMint_revertsBeforeLaunch() public {
+        vm.expectRevert(ToshLaunchpadHook.NotLaunched.selector);
+        hook.quoteMint(1e18);
+    }
+
+    function test_circuit_transferSettlesGenesisFund() public {
+        _buy(hook, alice, 5e18);
+        uint256 accrued = hook.fundAccrued();
+        assertGt(accrued, 0);
+        vm.prank(dev);
+        hook.setProjectFund(dev);
+        uint256 devBefore = quote.balanceOf(dev);
+
+        CircuitNFT nft = CircuitNFT(factory.circuitNFT());
+        uint256 id = factory.circuitOf(address(hook));
+        vm.prank(dev);
+        nft.transferFrom(dev, carol, id);
+
+        assertEq(hook.projectController(), carol);
+        assertEq(hook.projectFund(), carol);
+        assertEq(hook.fundAccrued(), 0);
+        assertEq(quote.balanceOf(dev) - devBefore, accrued);
+    }
+
     function test_releaseAbandonedName_refusedOnceRaised() public {
         _buy(hook, alice, 1e18);
         vm.warp(hook.genesisDeadline() + 30 days);

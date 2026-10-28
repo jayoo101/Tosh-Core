@@ -16,12 +16,14 @@ import {ToshCloneLib} from "./libraries/ToshCloneLib.sol";
 ///   Every transfer first sweeps the project's genesis pool fees into the vault
 ///   (skipped before launch, when there are none; after launch a sweep that
 ///   reverts reverts the transfer), then
-///   pays the vault's quote-asset balance to the sender. Revenue earned up to
-///   the transfer belongs to the seller and arrives in the same transaction;
-///   the buyer starts from an empty vault. A buyer therefore
-///   has nothing to check before buying, and the vault needs no withdrawal
-///   delay: there is no accumulated balance for a seller to pull out from under
-///   a pending sale.
+///   pays the vault's quote-asset balance to the sender, then pays the hook's
+///   accrued 20 % genesis fund to the address it currently names and points
+///   the fund at the buyer. Revenue earned up to the transfer belongs to the
+///   seller and arrives in the same transaction; the buyer starts from an
+///   empty vault and a fund address they control. A buyer therefore has
+///   nothing to check before buying, and the vault needs no withdrawal delay:
+///   there is no accumulated balance for a seller to pull out from under a
+///   pending sale.
 ///
 ///   Only the quote asset is settled. Anything else sent to a vault stays there
 ///   and moves with the NFT; the holder can withdraw it at any time.
@@ -88,12 +90,14 @@ contract CircuitNFT is ERC721 {
                 if (hook.launched()) revert FeeSweepFailed();
             }
             CircuitRevenueVault(vaultOf(tokenId)).settle(from);
+            ICircuitFactory(factory).settleProjectFund(tokenId, to);
         }
     }
 }
 
 interface ICircuitFactory {
     function hookOfCircuit(uint256 tokenId) external view returns (address);
+    function settleProjectFund(uint256 tokenId, address newFund) external;
 }
 
 interface ICircuitHook {

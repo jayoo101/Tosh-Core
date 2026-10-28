@@ -161,6 +161,7 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
     error TokenBelowQuoteAsset();
     error HaltDurationTooLong();
     error ImplementationMismatch();
+    error OnlyCircuit();
 
     // ─── Constructor ──────────────────────────────────────────────────────────
 
@@ -365,6 +366,15 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         if (nameTaken[nameKey]) revert NameTaken();
 
         bytes32 finalSalt = keccak256(abi.encode(msg.sender, hookSalt));
+        {
+            // Predicted before deploy so a revert cannot leave an orphan clone.
+            bytes32 initHash = ToshCloneLib.initcodeHash(
+                hookImplementation, msg.sender, developer, hardCap, perAgentCap, genesisDuration
+            );
+            if (projectFund == HookAddress.computeAddress(address(this), finalSalt, initHash)) {
+                revert ZeroAddress();
+            }
+        }
         hook = ToshCloneLib.deployHook(
             finalSalt, hookImplementation, msg.sender, developer, hardCap, perAgentCap, genesisDuration
         );
@@ -406,6 +416,15 @@ contract ToshFactory is Ownable2Step, Pausable, ReentrancyGuard {
         delete hookNameKey[hook];
         nameTaken[key] = false;
         emit NameReleased(hook, key);
+    }
+
+    /// @notice Called by the Circuit NFT on every transfer: pay the 20 % genesis
+    ///         fund to the seller's chosen address and point it at the buyer.
+    function settleProjectFund(uint256 tokenId, address newFund) external {
+        if (msg.sender != circuitNFT) revert OnlyCircuit();
+        address hook = hookOfCircuit[tokenId];
+        if (hook == address(0)) revert HookNotRegistered();
+        ToshLaunchpadHook(payable(hook)).settleProjectFund(newFund);
     }
 
     /// @notice Free a live launch's name for reuse. Owner only.

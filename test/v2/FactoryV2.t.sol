@@ -94,6 +94,15 @@ contract FactoryV2Test is V2Base {
         vm.stopPrank();
     }
 
+    function test_createLaunch_rejectsFundEqualToHook() public {
+        bytes32 salt = _pickSalt(HARD_CAP, AGENT_CAP, DURATION);
+        bytes32 initHash = factory.hookInitcodeHash(dev, admin, HARD_CAP, AGENT_CAP, DURATION);
+        address predicted = factory.predictHookAddress(admin, salt, initHash);
+        vm.prank(admin);
+        vm.expectRevert(ToshFactory.ZeroAddress.selector);
+        factory.createLaunch("A", "A", dev, predicted, salt, HARD_CAP, AGENT_CAP, DURATION);
+    }
+
     function test_createLaunch_wiresEverything() public {
         (ToshToken token, ToshLaunchpadHook hook) = _create();
         assertGt(uint160(address(token)), uint160(address(quote)), "token is currency1");

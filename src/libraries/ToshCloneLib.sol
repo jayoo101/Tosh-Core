@@ -215,9 +215,9 @@ library ToshCloneLib {
     /// @param  seed  Starting salt. MUST BE UNIQUE PER DEPLOYMENT. The factory
     ///               passes `nameKey`, which `nameTaken` already enforces as
     ///               unique, so no two launches can grind into the same
-    ///               candidate sequence. A reused seed would not be unsafe —
-    ///               CREATE2 onto an occupied address fails and the loop steps
-    ///               past it — but it would waste the attempt budget.
+    ///               candidate sequence. A reused seed is not unsafe, but a
+    ///               CREATE2 collision spends 63/64 of remaining gas, so the
+    ///               loop skips occupied addresses with EXTCODESIZE first.
     /// @param  floor The address the deployment must exceed; the quote asset.
     function deployBareCloneAbove(address implementation, address floor, bytes32 seed)
         internal
@@ -239,17 +239,16 @@ library ToshCloneLib {
                 // address, which already holds code — but `>` is what the pool
                 // ordering actually requires, so it is what is written.
                 if (candidate <= floor) continue;
+                // CREATE2 onto occupied code does not fail cheaply: it burns
+                // the gas forwarded into the initcode (63/64 of what is left).
+                // Relisting a released name reuses `nameKey` and would otherwise
+                // hit the old token on the first salt.
+                if (candidate.code.length != 0) continue;
 
                 assembly ("memory-safe") {
                     deployed := create2(0, add(initcode, 0x20), mload(initcode), salt)
                 }
 
-                // Zero means the address was occupied: this initcode cannot
-                // revert (it is a CODECOPY and a RETURN) and cannot run out of
-                // gas independently of its caller. Step to the next salt rather
-                // than failing the launch — a collision is someone else's clone
-                // sitting where ours would have gone, which is a reason to move,
-                // not to stop.
                 if (deployed != address(0)) return (deployed, salt);
             }
         }

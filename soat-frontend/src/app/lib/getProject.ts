@@ -122,6 +122,32 @@ async function getProjectFromChain(tokenOrHook: string): Promise<ProjectLookup> 
         // real absence, not a failure to look.
         return { status: 'not-found' }
       }
+      // A spoof can implement `projectToken`. Only a factory's `registeredHooks`
+      // map is write-once at `createLaunch`, so ask that rather than the hook.
+      if (hook !== zeroAddress) {
+        const factories = [...LISTED_FACTORIES, ...V2_FACTORIES]
+        let seen = false
+        let failed = 0
+        for (const factory of factories) {
+          try {
+            const ok = await client.readContract({
+              address: factory,
+              abi: FACTORY_ABI,
+              functionName: 'registeredHooks',
+              args: [hook],
+            }) as boolean
+            if (ok) {
+              seen = true
+              break
+            }
+          } catch {
+            failed++
+          }
+        }
+        if (!seen) {
+          return { status: failed === factories.length && factories.length > 0 ? 'unavailable' : 'not-found' }
+        }
+      }
     }
 
     // Two plain reads rather than `multicall`. viem's `foundry` chain declares

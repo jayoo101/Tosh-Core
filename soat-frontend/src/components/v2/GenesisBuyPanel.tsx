@@ -60,7 +60,7 @@ export function GenesisBuyPanel({ hook, quote, open, symbol }: { hook: Address; 
   const base = state.data?.basePrice ?? 0n
   const after = tokens > 0n && base > 0n ? priceAfterWei(base, state.data?.sold ?? 0n, tokens) : 0n
 
-  const approval = useQuoteApproval(quote.native ? undefined : hook, pay, quote.asset)
+  const approval = useQuoteApproval(quote.native ? undefined : hook, budget, quote.asset)
   const tx = useTxAction({
     action: t.buyAction,
     onConfirmed: () => { setRaw(''); void state.refetch(); void acct.refetch(); approval.refetch() },
@@ -75,8 +75,8 @@ export function GenesisBuyPanel({ hook, quote, open, symbol }: { hook: Address; 
         address: hook,
         abi: V2_HOOK_ABI,
         functionName: 'buyGenesis',
-        args: [pay, minTokens],
-        ...(quote.native ? { value: pay } : {}),
+        args: [budget, minTokens],
+        ...(quote.native ? { value: budget } : {}),
       }),
     blockersInRevertOrder: revertOrder(
       !open && { id: 'closed', active: true, label: t.closed, reason: t.launchWaiting, tone: 'neutral' },
@@ -173,11 +173,11 @@ export function GenesisBuyPanel({ hook, quote, open, symbol }: { hook: Address; 
             }),
             t.agentWalletSettings,
           ].join('\n\n')}
-          steps={pay > 0n && tokens > 0n ? [
-            ...(quote.native ? [] : [approveStep(quote.asset, quote.symbol, hook, pay, t)]),
+          steps={budget > 0n && tokens > 0n ? [
+            ...(quote.native ? [] : [approveStep(quote.asset, quote.symbol, hook, budget, t)]),
             {
               note: t.agentNoteBuy, to: hook, abi: V2_HOOK_ABI, functionName: 'buyGenesis',
-              args: [pay, minTokens], ...(quote.native ? { value: pay } : {}),
+              args: [budget, minTokens], ...(quote.native ? { value: budget } : {}),
             },
           ] : null}
           defaultOpen={agentFirst}

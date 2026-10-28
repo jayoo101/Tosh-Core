@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useState, type ReactNode } from 'react'
-import { isAddress, type Address } from 'viem'
+import { getAddress, type Address } from 'viem'
 import { useAccount, useReadContract } from 'wagmi'
 
 import {
@@ -344,6 +344,8 @@ function FundPanel({ hook, s, quote, onDone }: { hook: Address; s: State; quote:
   const { address } = useAccount()
   const [raw, setRaw] = useState('')
   const isController = !!address && address.toLowerCase() === s.projectController.toLowerCase()
+  let fundAddr: Address | undefined
+  try { fundAddr = getAddress(raw.trim()) } catch { /* invalid or bad checksum */ }
   const withdraw = useTxAction({ action: t.withdrawAction, onConfirmed: onDone })
   const change = useTxAction({ action: t.setFundAction, onConfirmed: () => { setRaw(''); onDone() } })
 
@@ -359,10 +361,10 @@ function FundPanel({ hook, s, quote, onDone }: { hook: Address; s: State; quote:
   const cGate = useActionGate({
     action: t.setFund,
     tx: change,
-    onAct: () => change.send({ address: hook, abi: V2_HOOK_ABI, functionName: 'setProjectFund', args: [raw as Address] }),
+    onAct: () => change.send({ address: hook, abi: V2_HOOK_ABI, functionName: 'setProjectFund', args: [fundAddr!] }),
     blockersInRevertOrder: revertOrder(
       !isController && { id: 'ctl', active: true, label: t.setFund, reason: t.controllerOnly, tone: 'neutral' },
-      { id: 'addr', active: !isAddress(raw), label: t.setFund, reason: t.fundAddrLabel, tone: 'neutral' },
+      { id: 'addr', active: fundAddr === undefined, label: t.setFund, reason: t.fundAddrLabel, tone: 'neutral' },
     ),
   })
 

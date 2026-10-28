@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { encodeFunctionData, isAddress, keccak256, toHex, type Address, type Hex } from 'viem'
+import { encodeFunctionData, getAddress, keccak256, toHex, type Address, type Hex } from 'viem'
 import { useAccount, useReadContracts } from 'wagmi'
 
 import {
@@ -16,6 +16,14 @@ import { fmtSig, parseAmount } from './fmt'
 
 /** The hook accepts exactly these windows (`InvalidDuration` otherwise). */
 const DURATIONS = [3, 24, 72] as const
+
+function checksummed(raw: string): Address | undefined {
+  try {
+    return getAddress(raw.trim())
+  } catch {
+    return undefined
+  }
+}
 
 type Stack = 'bnb' | 'usdt'
 
@@ -54,8 +62,8 @@ export function V2LaunchForm() {
   // Equal bounds are a platform-wide allowance (BNB: ten 0.01 shares), not a choice.
   const fixedAgentCap = minAgent !== undefined && minAgent === maxAgent ? minAgent : undefined
   const agentCap = fixedAgentCap ?? parseAmount(rawAgentCap) ?? 0n
-  const dev = isAddress(developer.trim()) ? (developer.trim() as Address) : undefined
-  const fundAddr = isAddress(fund.trim()) ? (fund.trim() as Address) : undefined
+  const dev = checksummed(developer)
+  const fundAddr = checksummed(fund)
   const args = useMemo(
     () => [name.trim(), symbol.trim(), dev!, fundAddr!, salt, hardCap, agentCap, BigInt(hours * 3600)] as const,
     [name, symbol, dev, fundAddr, salt, hardCap, agentCap, hours],

@@ -1427,9 +1427,11 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     function initializeToken(address token_, address projectAdmin_, address projectFund_) external onlyClone {
         if (msg.sender != factory) revert OnlyFactory();
         if (tokenInitialized) revert AlreadyInitialized();
-        require(token_ != address(0), "zero token");
+        if (token_ == address(0)) revert ZeroAddress();
         if (projectAdmin_ == address(0)) revert InvalidAdmin();
-        if (projectFund_ == address(0)) revert ZeroAddress();
+        // Same trap as `setProjectFund`: paying the hook parks the 20 % as a
+        // balance `launch()` then treats as surplus and sends to the platform.
+        if (projectFund_ == address(0) || projectFund_ == address(this)) revert ZeroAddress();
 
         // Validated here rather than in the factory because the value is read
         // out of this clone's own bytecode: checking the factory's argument
@@ -1449,10 +1451,10 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         // the one new failure mode this design introduces, and a degenerate
         // config is exactly what one would look like, so the values are checked
         // where they are read rather than where they were written.
-        require(ToshCloneLib.argCreator() != address(0), "zero creator");
-        require(ToshCloneLib.argProjectTreasury() != address(0), "zero treasury");
-        require(ToshCloneLib.argHardCap() != 0, "zero hardCap");
-        require(ToshCloneLib.argPerWalletCap() != 0, "zero perAgentCap");
+        if (ToshCloneLib.argCreator() == address(0)) revert ZeroAddress();
+        if (ToshCloneLib.argProjectTreasury() == address(0)) revert ZeroAddress();
+        if (ToshCloneLib.argHardCap() == 0) revert ZeroAddress();
+        if (ToshCloneLib.argPerWalletCap() == 0) revert ZeroAddress();
 
         projectToken = ToshToken(token_);
         projectAdmin = projectAdmin_;
@@ -1607,6 +1609,26 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
         address to = projectFund;
         _payQuote(to, amount);
         emit FundWithdrawn(to, amount);
+    }
+
+    /// @notice Pay `fundAccrued` to the current `projectFund` and point the
+    ///         fund at `newFund`. The factory calls this from a Circuit transfer
+    ///         so a sale settles the 20 % genesis share the same way it
+    ///         settles the revenue vault: the seller is paid, the buyer starts
+    ///         with a fund address they control.
+    function settleProjectFund(address newFund) external {
+        if (msg.sender != factory) revert OnlyFactory();
+        if (newFund == address(0) || newFund == address(this)) revert ZeroAddress();
+        uint256 amount = fundAccrued;
+        address to = projectFund;
+        if (amount != 0) {
+            fundAccrued = 0;
+            fundWithdrawn += amount;
+            _payQuote(to, amount);
+            emit FundWithdrawn(to, amount);
+        }
+        emit ProjectFundChanged(to, newFund);
+        projectFund = newFund;
     }
 
     // ─── Launch ───────────────────────────────────────────────────────────────
@@ -1895,6 +1917,7 @@ contract ToshLaunchpadHook is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         two loops together.
     function quoteMint(uint256 tokenAmount) external view returns (uint256 nativeCost) {
         if (tokenAmount == 0) return 0;
+        if (!launched) revert NotLaunched();
 
         LadderState memory st = _ladderState;
 

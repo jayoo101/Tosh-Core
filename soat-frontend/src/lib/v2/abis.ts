@@ -2885,6 +2885,19 @@ export const V2_HOOK_ABI = [
   },
   {
     "type": "function",
+    "name": "settleProjectFund",
+    "inputs": [
+      {
+        "name": "newFund",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "shelfP0",
     "inputs": [],
     "outputs": [
@@ -4512,6 +4525,24 @@ export const V2_FACTORY_ABI = [
   },
   {
     "type": "function",
+    "name": "settleProjectFund",
+    "inputs": [
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "newFund",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "tokenImplementation",
     "inputs": [],
     "outputs": [
@@ -5022,6 +5053,11 @@ export const V2_FACTORY_ABI = [
   {
     "type": "error",
     "name": "NoSaltAboveFloor",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OnlyCircuit",
     "inputs": []
   },
   {

@@ -142,6 +142,7 @@ describe('getProject — absence and unavailability are different answers', () =
     reads = {
       tokenToHook: () => ZERO,
       projectToken: () => TOKEN,
+      registeredHooks: () => true,
       name: () => 'E2E Clone MT9YCRU8',
       symbol: () => 'E2ERU8',
     }
@@ -150,6 +151,17 @@ describe('getProject — absence and unavailability are different answers', () =
     if (result.status !== 'found') return
     expect(result.row.token_address).toBe(TOKEN)
     expect(result.row.hook_address).toBe(HOOK)
+  })
+
+  it('rejects a spoof that implements projectToken but is not registered', async () => {
+    reads = {
+      tokenToHook: () => ZERO,
+      projectToken: () => TOKEN,
+      registeredHooks: () => false,
+      name: () => 'Fake',
+      symbol: () => 'FAKE',
+    }
+    await expect(getProject(HOOK)).resolves.toEqual({ status: 'not-found' })
   })
 
   it('finds a token registered on a retired factory', async () => {
