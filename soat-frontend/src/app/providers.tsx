@@ -53,6 +53,8 @@ function trimmedEnv(value: string | undefined): string | null {
   return t.length > 0 ? t : null
 }
 
+const BSC_PUBLIC_RPCS = ['https://bsc-dataseed.bnbchain.org', 'https://bsc-rpc.publicnode.com']
+
 function buildTargetTransport() {
   const candidates: string[] = []
   // A chain-named variable only means anything when that chain is the target.
@@ -74,6 +76,11 @@ function buildTargetTransport() {
   // entry for the chain this build now targets.
   const publicUrl = targetChain.rpcUrls.default.http[0] ?? null
   if (publicUrl && !candidates.includes(publicUrl)) candidates.push(publicUrl)
+  // viem names a single public endpoint for 56, so without these every visitor
+  // shares one free node's rate limit and goes dark when it does.
+  if (targetChain.id === BSC_ID) {
+    for (const url of BSC_PUBLIC_RPCS) if (!candidates.includes(url)) candidates.push(url)
+  }
 
   if (candidates.length === 0) {
     return http(undefined, { retryCount: 2, retryDelay: 250, timeout: 15_000 })
