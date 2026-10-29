@@ -10,7 +10,7 @@ firing without somebody deciding about it. Neither gate is advisory.
 | Baseline | `slither-baseline.json` | `aderyn-baseline.json` |
 | Gate | `scripts/checkSlitherFindings.mjs` | `scripts/checkAderynFindings.mjs` |
 | Scope | `src/` (`--filter-paths lib/\|test/\|script/`) | `src/` (inferred from `foundry.toml`) |
-| Current | 176 findings, 2H/65M/57L/52I | 264 findings, 51H/213L |
+| Current | 176 findings, 2H/65M/57L/52I | 265 findings, 51H/214L |
 | Runtime | ~15 s, plus a slower `pip install` | ~6 s, no compile of its own |
 
 The current counts include `src/v3/`, the next version of the hook, factory
@@ -177,7 +177,7 @@ the project's pool and adds it as liquidity nobody can remove:
 
 ## Aderyn disposition record
 
-23 detectors, 264 instances, all triaged, nothing unresolved.
+23 detectors, 265 instances, all triaged, nothing unresolved.
 
 Re-baselined on 2026-10-28 against v2. `src/` went from 10 source units to
 14: `ToshBidBook`, `ToshHookLens`, `AgentIdLib`, `WalletLib` and
@@ -197,7 +197,7 @@ whose return value could be dropped.
 `AgentIdLib.ownerOfHandle`, the two registry reads `agentKeyOf` is built from.
 Kept as named steps; inlining them changes nothing.
 
-`src/v3/` adds five source units (19 in all) and 100 instances. No detector
+`src/v3/` adds five source units (19 in all) and 101 instances. No detector
 fires there that does not fire on v2. 87 sit at the v3 copy of a v2 site
 described below, apart from `quoteMint`, which is now on the lens, and
 `mintBondingCurve`'s `reentrancy-state-change`, which no longer fires: the
@@ -205,7 +205,9 @@ v3 hook writes the ladder state before its one factory call. 2 come from the
 shelf allowance: `centralization-risk` on `setShelfCapPerAgent` (the owner
 sets the per-Agent-ID shelf cap, bounded by `minBuy` and `ABS_MAX_CAP`, with
 an event) and `local-variable-shadowing` on its `Config` field, named like
-the others. The other 11 are in `ToshAutoLp`: `reentrancy-state-change` in `lockAcquired` (5; see
+the others. 1 is `large-numeric-literal` on `TIER_COUNT = 10_000`, the
+v3 ladder's shelf count, which v2's 4000 was too small to trip. The other 11
+are in `ToshAutoLp`: `reentrancy-state-change` in `lockAcquired` (5; see
 Slither's reentrancy entries above) and `setFactory` (1, a deployer-only
 one-shot that reads the factory it is binding); `unchecked-return` on
 `settle`; two `large-numeric-literal` (the bps and ppm denominators); and the
@@ -387,7 +389,7 @@ they initialise; the fifteenth is `ToshLadderTreasury`'s constructor parameter
 `_owner`, which shadows `Ownable`'s private slot and is handed straight to
 `Ownable`'s constructor. Nothing is shadowed at run time.
 
-**`literal-instead-of-constant`** (23), **`large-numeric-literal`** (15),
+**`literal-instead-of-constant`** (23), **`large-numeric-literal`** (16),
 **`modifier-used-only-once`** (8), **`costly-loop`** (6),
 **`require-revert-in-loop`** (10), **`uninitialized-local-variable`** (6) — style
 findings with no behavioural claim. The uninitialised locals are loop counters
