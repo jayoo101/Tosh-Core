@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useState, type ReactNode } from 'react'
-import { getAddress, zeroHash, type Address } from 'viem'
+import { erc20Abi, getAddress, maxUint256, parseAbi, zeroHash, type Address } from 'viem'
 import { useAccount, useReadContract } from 'wagmi'
 
 import {
@@ -66,7 +66,15 @@ export function V2Terminal({ hook, symbol, header }: {
     ...(s.launched ? [] : [{ id: 'market', label: tx.tabMarket, content: <BidMarket hook={hook} symbol={symbol} embedded /> }]),
     { id: 'tokenomics', label: tx.tabTokenomics, content: <Tokenomics s={s} quote={quote} /> },
     { id: 'rules', label: tx.tabRules, content: <Rules s={s} quote={quote} /> },
-    { id: 'fund', label: tx.tabFund, content: <FundPanel hook={hook} s={s} quote={quote} onDone={() => void refetch()} /> },
+    {
+      id: 'fund', label: tx.tabFund,
+      content: (
+        <div className="flex flex-col gap-6">
+          <FundPanel hook={hook} s={s} quote={quote} onDone={() => void refetch()} />
+          <RevenueVaultPanel hook={hook} quote={quote} />
+        </div>
+      ),
+    },
   ]
 
   return (
@@ -390,6 +398,63 @@ function FundPanel({ hook, s, quote, onDone }: { hook: Address; s: State; quote:
           <WalletAction gate={cGate} />
         </div>
       )}
+    </Card>
+  )
+}
+
+const REVENUE_VAULT_ABI = parseAbi([
+  'function projectAdmin() view returns (address)',
+  'function holder() view returns (address)',
+  'function withdraw(address token, address to, uint256 amount) returns (uint256)',
+])
+
+/** The Circuit NFT's revenue vault (`projectAdmin`): swap tax and shelf share after launch. */
+function RevenueVaultPanel({ hook, quote }: { hook: Address; quote: V2Quote }) {
+  const t = useT().v2
+  const { address } = useAccount()
+  const { data: vault } = useReadContract({
+    address: hook, abi: REVENUE_VAULT_ABI, functionName: 'projectAdmin', chainId: TARGET_CHAIN_ID,
+  })
+  const { data: holder } = useReadContract({
+    address: vault, abi: REVENUE_VAULT_ABI, functionName: 'holder', chainId: TARGET_CHAIN_ID,
+    query: { enabled: !!vault, refetchInterval: 30_000 },
+  })
+  const { data: balance, refetch } = useReadContract({
+    address: quote.asset, abi: erc20Abi, functionName: 'balanceOf', args: vault ? [vault] : undefined,
+    chainId: TARGET_CHAIN_ID, query: { enabled: !!vault, refetchInterval: 15_000 },
+  })
+  const isHolder = !!address && !!holder && address.toLowerCase() === holder.toLowerCase()
+  const symbol = quote.native ? WRAP_VARS.wrapped : quote.symbol
+  const tx = useTxAction({ action: t.vaultWithdrawAction, onConfirmed: () => void refetch() })
+  const gate = useActionGate({
+    action: t.vaultWithdraw,
+    tx,
+    onAct: () => tx.send({ address: vault!, abi: REVENUE_VAULT_ABI, functionName: 'withdraw', args: [quote.asset, holder!, maxUint256] }),
+    blockersInRevertOrder: revertOrder(
+      !isHolder && { id: 'holder', active: true, label: t.vaultWithdraw, reason: t.controllerOnly, tone: 'neutral' },
+      { id: 'zero', active: !balance, label: t.vaultWithdraw, reason: t.vaultBlurb, tone: 'neutral' },
+    ),
+  })
+  if (!vault) return null
+
+  return (
+    <Card title={t.vaultTitle} subtitle={t.vaultBlurb}>
+      <ReadoutGrid columns={2}>
+        <Readout label={t.fundAvailable} value={`${fmtSig(balance ?? 0n)} ${symbol}`} />
+        <Readout label={t.vaultAddr} value={<AddressLink value={vault} />} />
+        <Readout label={t.vaultHolder} value={holder ? <AddressLink value={holder} /> : '—'} />
+      </ReadoutGrid>
+      {!!balance && !!holder && (
+        <AgentModeSheet
+          title={`${t.vaultWithdraw} ${fmtSig(balance)} ${symbol}`}
+          steps={[{
+            note: fill(t.agentNoteVaultWithdraw, { symbol, to: holder }),
+            to: vault, abi: REVENUE_VAULT_ABI, functionName: 'withdraw', args: [quote.asset, holder, maxUint256],
+          }]}
+          onDone={() => void refetch()}
+        />
+      )}
+      {isHolder && <WalletAction gate={gate} />}
     </Card>
   )
 }
