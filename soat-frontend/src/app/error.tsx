@@ -25,6 +25,7 @@ import Link from 'next/link'
 import { useEffect } from 'react'
 
 import { reportError } from '@/lib/observability'
+import { reloadOnceForStaleBuild } from '@/lib/staleBuild'
 
 interface ErrorBoundaryProps {
   /** The thrown value, normalized by Next.js to `Error` with a `.digest`. */
@@ -45,6 +46,7 @@ export default function GlobalRouteError({ error, reset }: ErrorBoundaryProps) {
       digest: error.digest,
       extra: { pathname: window.location.pathname },
     })
+    reloadOnceForStaleBuild(error)
   }, [error])
 
   return (

@@ -33,18 +33,20 @@
 import { useEffect } from 'react'
 
 import { reportError } from '@/lib/observability'
+import { reloadOnceForStaleBuild } from '@/lib/staleBuild'
 
 interface GlobalErrorProps {
   error: Error & { digest?: string }
   reset: () => void
 }
 
-export default function GlobalError({ error, reset }: GlobalErrorProps) {
+export default function GlobalError({ error }: GlobalErrorProps) {
   useEffect(() => {
     if (process.env.NODE_ENV !== 'production') {
       console.error('[Tosh global error boundary]', error)
     }
     reportError(error, { surface: 'global-error-boundary', digest: error.digest })
+    reloadOnceForStaleBuild(error)
   }, [error])
 
   return (
@@ -112,9 +114,11 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
             </div>
           )}
 
+          {/* A full reload, not `reset()`: re-rendering the root layout in the
+              same tab re-requests the same missing or broken chunks. */}
           <button
             type="button"
-            onClick={reset}
+            onClick={() => window.location.reload()}
             style={{
               all: 'unset',
               boxSizing: 'border-box',
