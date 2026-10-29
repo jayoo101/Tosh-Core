@@ -3,6 +3,8 @@ import 'server-only'
 import { EN } from './dict/en'
 import type { Dictionary, PartialDictionary } from './types'
 import { DEFAULT_LOCALE, type Locale } from './locales'
+import { V3_PATCH } from './v3Patch'
+import { IS_V3 } from '@/lib/v2/config'
 
 /**
  * Loading and merging the locale dictionaries. Server side only.
@@ -69,8 +71,22 @@ export function mergeDictionary(base: Dictionary, over: PartialDictionary): Dict
   return out as Dictionary
 }
 
+/** `V3_PATCH` for one locale: its own v3 text where it has some, English v3 text elsewhere. */
+function v3Overlay(locale: Locale): PartialDictionary {
+  const own = V3_PATCH[locale] as Record<string, Record<string, string> | undefined> | undefined
+  const out: Record<string, Record<string, string>> = {}
+  for (const [group, keys] of Object.entries(V3_PATCH.en)) {
+    const merged: Record<string, string> = {}
+    for (const [key, value] of Object.entries(keys as Record<string, string>)) {
+      merged[key] = own?.[group]?.[key] || value
+    }
+    out[group] = merged
+  }
+  return out as PartialDictionary
+}
+
 /** The dictionary for one locale, complete, with English behind every gap. */
 export async function getDictionary(locale: Locale): Promise<Dictionary> {
-  if (locale === DEFAULT_LOCALE) return EN
-  return mergeDictionary(EN, await LOADERS[locale]())
+  const base = locale === DEFAULT_LOCALE ? EN : mergeDictionary(EN, await LOADERS[locale]())
+  return IS_V3 ? mergeDictionary(base, v3Overlay(locale)) : base
 }

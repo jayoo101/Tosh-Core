@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useState, type ReactNode } from 'react'
-import { getAddress, type Address } from 'viem'
+import { getAddress, zeroHash, type Address } from 'viem'
 import { useAccount, useReadContract } from 'wagmi'
 
 import {
@@ -21,8 +21,8 @@ import { ProjectTabs } from '@/components/x/ProjectTabs'
 import { fill, useT } from '@/i18n'
 import { TARGET_CHAIN_ID } from '@/lib/chain'
 import { V2_HOOK_ABI, V2_LENS_ABI } from '@/lib/v2/abis'
-import { V2, V2_LENS, v2Quote, type V2Quote } from '@/lib/v2/config'
-import { useGenesisState } from '@/lib/v2/useV2'
+import { IS_V3, V2, V2_LENS, v2Quote, type V2Quote } from '@/lib/v2/config'
+import { useAccountState, useGenesisState, useShelfQuote, useShelfRemaining } from '@/lib/v2/useV2'
 import { BidMarket } from './BidMarket'
 import { fmtSig, fmtTime, parseAmount } from './fmt'
 import { GenesisBuyPanel } from './GenesisBuyPanel'
@@ -397,21 +397,26 @@ function FundPanel({ hook, s, quote, onDone }: { hook: Address; s: State; quote:
 function ShelfPanel({ hook, quote, symbol }: { hook: Address; quote: V2Quote; symbol: string }) {
   const t = useT().v2
   const tw = useT().wrap
+  const { address } = useAccount()
+  const agent = useAgentAddress()
+  const buyer = address ?? agent
   const [raw, setRaw] = useState('')
   const amount = parseAmount(raw) ?? 0n
   const { data: st, refetch } = useReadContract({
     address: hook, abi: V2_HOOK_ABI, functionName: 'tierStatus', chainId: TARGET_CHAIN_ID,
     query: { refetchInterval: 8_000 },
   })
-  const { data: cost } = useReadContract({
-    address: hook, abi: V2_HOOK_ABI, functionName: 'quoteMint', args: [amount], chainId: TARGET_CHAIN_ID,
-    query: { enabled: amount > 0n },
-  })
+  const { data: cost } = useShelfQuote(hook, amount)
+  const { data: acct } = useAccountState(IS_V3 ? hook : undefined, buyer)
+  const { data: shelfLeft, refetch: refetchLeft } = useShelfRemaining(hook, buyer)
   const maxCost = cost ?? 0n
   const approval = useQuoteApproval(hook, maxCost, quote.asset)
   const wrap = useWrapShortfall(quote, maxCost, () => {})
-  const tx = useTxAction({ action: t.mintAction, onConfirmed: () => { setRaw(''); void refetch(); approval.refetch(); wrap.refetch() } })
+  const refresh = () => { void refetch(); void refetchLeft(); approval.refetch(); wrap.refetch() }
+  const tx = useTxAction({ action: t.mintAction, onConfirmed: () => { setRaw(''); refresh() } })
   const unlocked = st?.[6] ?? false
+  const noAgentId = IS_V3 && acct !== undefined && acct.registryOk && acct.agentKey === zeroHash
+  const overCap = IS_V3 && shelfLeft !== undefined && maxCost > shelfLeft
 
   const gate = useActionGate({
     action: t.mintBtn,
@@ -419,7 +424,12 @@ function ShelfPanel({ hook, quote, symbol }: { hook: Address; quote: V2Quote; sy
     onAct: () => tx.send({ address: hook, abi: V2_HOOK_ABI, functionName: 'mintBondingCurve', args: [amount, maxCost] }),
     blockersInRevertOrder: revertOrder(
       !unlocked && { id: 'locked', active: true, label: t.mintBtn, reason: t.shelfLocked, tone: 'neutral' },
+      noAgentId && { id: 'agent', active: true, label: t.mintBtn, reason: t.shelfAgentNone, tone: 'neutral' },
       { id: 'amount', active: amount === 0n || maxCost === 0n, label: t.mintBtn, reason: t.mintAmount, tone: 'neutral' },
+      overCap && {
+        id: 'cap', active: true, label: t.mintBtn,
+        reason: fill(t.shelfAgentOver, { remaining: fmtSig(shelfLeft), quote: quote.symbol }), tone: 'neutral',
+      },
       wrap.gap > 0n && {
         id: 'wrap', active: true,
         label: fill(tw.wrapLabel, { ...WRAP_VARS, amount: fmtSig(wrap.gap) }),
@@ -438,6 +448,12 @@ function ShelfPanel({ hook, quote, symbol }: { hook: Address; quote: V2Quote; sy
       <ReadoutGrid columns={2}>
         <Readout label={t.shelfPrice} value={st ? `${fmtSig(st[1])} ${quote.symbol}` : '—'} />
         <Readout label={t.shelfLeft} value={st ? `${fmtSig(st[2])} ${symbol}` : '—'} />
+        {IS_V3 && buyer && (
+          <Readout
+            label={t.shelfAllowance}
+            value={noAgentId ? t.shelfAgentMissing : shelfLeft !== undefined ? `${fmtSig(shelfLeft)} ${quote.symbol}` : '—'}
+          />
+        )}
       </ReadoutGrid>
       <Field label={`${t.mintAmount} (${symbol})`} value={raw} onValueChange={setRaw} inputMode="decimal" placeholder="0" />
       {maxCost > 0n && <Readout label={t.payLabel} value={`${fmtSig(maxCost)} ${quote.symbol}`} />}
@@ -449,7 +465,7 @@ function ShelfPanel({ hook, quote, symbol }: { hook: Address; quote: V2Quote; sy
           ...prepSteps(quote, hook, maxCost, t),
           { note: fill(t.agentNoteMint, { amount: fmtSig(amount), symbol }), to: hook, abi: V2_HOOK_ABI, functionName: 'mintBondingCurve', args: [amount, maxCost] },
         ] : null}
-        onDone={() => { void refetch(); approval.refetch(); wrap.refetch() }}
+        onDone={refresh}
       />
     </Card>
   )

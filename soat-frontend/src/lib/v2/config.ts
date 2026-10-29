@@ -11,6 +11,9 @@
 //   NEXT_PUBLIC_V2_WBNB           WBNB on this chain
 //   NEXT_PUBLIC_V2_USDT           USDT on this chain
 //   NEXT_PUBLIC_V2_FROM_BLOCK     deploy block, where log scans start
+//   NEXT_PUBLIC_TOSH_STACK        `v3` when the addresses above are a v3
+//                                 deployment (script/DeployV3.s.sol); unset or
+//                                 `v2` otherwise. One stack is live at a time.
 import type { Address } from 'viem'
 import { NATIVE_SYMBOL } from '@/lib/chain'
 
@@ -68,6 +71,23 @@ export function v2QuoteConfig(factory: string): { asset: Address; decimals: numb
   return { asset, decimals: 18, symbol: native ? NATIVE_SYMBOL : 'USDT', wrapsNative: native }
 }
 
+function stack(raw: string | undefined): 'v2' | 'v3' {
+  const v = raw?.trim().toLowerCase()
+  if (!v || v === 'v2') return 'v2'
+  if (v === 'v3') return 'v3'
+  throw new Error(`v2 config: NEXT_PUBLIC_TOSH_STACK must be "v2" or "v3", got "${raw}"`)
+}
+
+export const TOSH_STACK = stack(process.env.NEXT_PUBLIC_TOSH_STACK)
+export const IS_V3 = TOSH_STACK === 'v3'
+
+/** Supply constants per stack, in token wei. Total supply is 21M on both. */
+export const STACK_SUPPLY = {
+  v2: { SALE_SUPPLY: 5_600_000n * 10n ** 18n, GENESIS_SUPPLY: 8_400_000n * 10n ** 18n, TIER_COUNT: 4_000 },
+  v3: { SALE_SUPPLY: 1_800_000n * 10n ** 18n, GENESIS_SUPPLY: 2_700_000n * 10n ** 18n, TIER_COUNT: 10_000 },
+} as const
+const SUPPLY = STACK_SUPPLY[TOSH_STACK]
+
 /** Mirrors of contract constants the UI computes with. */
 export const V2 = {
   FEE_BPS: 100n,
@@ -76,7 +96,8 @@ export const V2 = {
   MIN_FILL_QTY: 10n ** 18n,
   ONE: 10n ** 18n,
   ADMIN_LAUNCH_WINDOW_S: 48 * 3600,
-  SALE_SUPPLY: 5_600_000n * 10n ** 18n,
-  GENESIS_SUPPLY: 8_400_000n * 10n ** 18n,
+  SALE_SUPPLY: SUPPLY.SALE_SUPPLY,
+  GENESIS_SUPPLY: SUPPLY.GENESIS_SUPPLY,
   FUND_BPS: 2000n,
+  TIER_COUNT: SUPPLY.TIER_COUNT,
 } as const

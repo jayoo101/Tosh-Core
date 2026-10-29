@@ -373,6 +373,10 @@ export const ZH_CN: PartialDictionary = {
     mintAmount:        '数量',
     mintBtn:           '从货架买入',
     mintAction:        '货架买入',
+    shelfAllowance:    '货架剩余额度',
+    shelfAgentMissing: '没有 Agent ID',
+    shelfAgentNone:    '货架买入需要币安 Agent ID。请用持有 Agent ID 的钱包买入。',
+    shelfAgentOver:    '这笔买入超出了该 Agent ID 在本项目货架上剩余的 {remaining} {quote} 额度。',
   },
 
   x: {

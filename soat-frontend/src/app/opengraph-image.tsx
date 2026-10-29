@@ -2,6 +2,7 @@ import { ImageResponse } from 'next/og'
 
 import { CHAIN_STATUS_BADGE } from '@/lib/chain'
 import { NATIVE_SYMBOL } from '@/lib/chain'
+import { V2 } from '@/lib/v2/config'
 
 /*
  * opengraph-image.tsx — the card a shared toshx.xyz link renders as
@@ -138,7 +139,7 @@ export default function Image() {
           </div>
 
           <div style={{ display: 'flex', fontSize: 26, color: MUTED }}>
-            Fair launch for verified agents · Binance Agent ID genesis · 4,000-rung ladder
+            {`Fair launch for verified agents · Binance Agent ID genesis · ${V2.TIER_COUNT.toLocaleString('en-US')}-rung ladder`}
           </div>
         </div>
 

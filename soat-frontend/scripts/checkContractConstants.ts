@@ -19,12 +19,14 @@ import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { V2 } from '../src/lib/v2/config'
+import { STACK_SUPPLY, V2 } from '../src/lib/v2/config'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const V2_HOOK = 'src/ToshLaunchpadHook.sol'
 const V2_BOOK = 'src/ToshBidBook.sol'
 const CURVE = 'src/libraries/GenesisCurve.sol'
+const V3_HOOK = 'src/v3/ToshLaunchpadHookV3.sol'
+const V3_CURVE = 'src/v3/libraries/GenesisCurveV3.sol'
 
 const problems: string[] = []
 const fail = (m: string) => problems.push(m)
@@ -152,6 +154,23 @@ const FIELDS: Field[] = [
     cost: 'the genesis buy panel prices against a curve that sells a different supply' },
   { sol: 'FUND_BPS', file: V2_HOOK, ts: V2.FUND_BPS, where: 'v2/config.V2.FUND_BPS',
     cost: 'the raise breakdown misstates the share routed to the project fund' },
+  // Both stacks, whichever NEXT_PUBLIC_TOSH_STACK this run was built for.
+  { sol: 'GENESIS_SUPPLY', file: V2_HOOK, ts: STACK_SUPPLY.v2.GENESIS_SUPPLY, where: 'v2/config.STACK_SUPPLY.v2.GENESIS_SUPPLY',
+    cost: 'a v2 build measures sales against the wrong supply' },
+  { sol: 'SALE_SUPPLY', file: CURVE, ts: STACK_SUPPLY.v2.SALE_SUPPLY, where: 'v2/config.STACK_SUPPLY.v2.SALE_SUPPLY',
+    cost: 'a v2 build prices against a curve that sells a different supply' },
+  { sol: 'TIER_COUNT', file: V2_HOOK, ts: BigInt(STACK_SUPPLY.v2.TIER_COUNT), where: 'v2/config.STACK_SUPPLY.v2.TIER_COUNT',
+    cost: 'a v2 build numbers the shelves out of the wrong total' },
+  { sol: 'GENESIS_SUPPLY', file: V3_HOOK, ts: STACK_SUPPLY.v3.GENESIS_SUPPLY, where: 'v2/config.STACK_SUPPLY.v3.GENESIS_SUPPLY',
+    cost: 'a v3 build measures sales against the wrong supply' },
+  { sol: 'SALE_SUPPLY', file: V3_CURVE, ts: STACK_SUPPLY.v3.SALE_SUPPLY, where: 'v2/config.STACK_SUPPLY.v3.SALE_SUPPLY',
+    cost: 'a v3 build prices against a curve that sells a different supply' },
+  { sol: 'TIER_COUNT', file: V3_HOOK, ts: BigInt(STACK_SUPPLY.v3.TIER_COUNT), where: 'v2/config.STACK_SUPPLY.v3.TIER_COUNT',
+    cost: 'a v3 build numbers the shelves out of the wrong total' },
+  { sol: 'FUND_BPS', file: V3_HOOK, ts: V2.FUND_BPS, where: 'v2/config.V2.FUND_BPS',
+    cost: 'a v3 build misstates the share routed to the project fund' },
+  { sol: 'ADMIN_LAUNCH_WINDOW', file: V3_HOOK, ts: BigInt(V2.ADMIN_LAUNCH_WINDOW_S), where: 'v2/config.V2.ADMIN_LAUNCH_WINDOW_S',
+    cost: 'a v3 launch panel opens launching to the public early' },
 ]
 
 for (const f of FIELDS) {
