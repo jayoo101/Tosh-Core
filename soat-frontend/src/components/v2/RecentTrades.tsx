@@ -10,6 +10,20 @@ import { fmtSig } from './fmt'
 
 interface TradeRow { tx_hash: string; log_index: number; seller: string; qty: string; price: string; gross: string; block_number: number }
 
+/** All-time fill count and gross for one launch; `undefined` while the index is unavailable. */
+export function useBidVolume(hook: Address) {
+  return useQuery({
+    queryKey: ['v2-volume', hook],
+    refetchInterval: 15_000,
+    queryFn: async (): Promise<{ count: number; gross: bigint } | null> => {
+      const r = await fetch(`/api/v2/volume?hook=${hook}`, { cache: 'no-store' })
+      if (!r.ok) return null
+      const v = (await r.json()) as { count: number; gross: string }
+      return { count: v.count, gross: BigInt(v.gross) }
+    },
+  }).data ?? undefined
+}
+
 /** Fills from the index. Hidden while the index is unavailable: this list is history, not state. */
 export function RecentTrades({ hook, quote }: { hook: Address; quote: V2Quote }) {
   const t = useT().v2
