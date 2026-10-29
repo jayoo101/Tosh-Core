@@ -364,6 +364,12 @@ export const EN = {
     setFundAction:     'project fund change',
     fundAddrLabel:     'New fund address',
     controllerOnly:    'Circuit NFT holder only.',
+    vaultTitle:        'Project revenue vault',
+    vaultBlurb:        'After launch, 0.60 % of every buy and 19 % of shelf revenue land here. Only the Circuit NFT holder can withdraw.',
+    vaultAddr:         'Vault',
+    vaultHolder:       'NFT holder',
+    vaultWithdraw:     'Withdraw to holder',
+    vaultWithdrawAction: 'vault withdrawal',
 
     registerLink:      'Register to receive',
 
@@ -449,6 +455,7 @@ export const EN = {
     agentNoteTransfer: 'Send {amount} {symbol} to {to}',
     agentNoteLaunch:   'Launch the pool',
     agentNoteWithdraw: 'Withdraw the project fund',
+    agentNoteVaultWithdraw: 'Withdraw all {symbol} in the vault to {to}',
     agentNoteMint:     'Buy {amount} {symbol} from the shelf',
     agentNoteCapClamp: 'The hook spends at most the remaining allowance of the Agent ID that signs; anything above it is refunded.',
     agentAddressBook:  'Add the recipient to the Binance app address book first.',
