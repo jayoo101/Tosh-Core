@@ -176,7 +176,8 @@ import {AgentIdLib} from "../libraries/AgentIdLib.sol";
 ///   Same contract, resized supply. Genesis sells 1.8 M tokens on the same
 ///   P → 1.5P curve (P = hardCap / 2.25M, so a given raise buys a third of the
 ///   tokens at three times the price), seeds the pool with up to 0.9 M, and
-///   leaves 18.3 M to the ladder, which now spans ×10⁹ instead of ×2000.
+///   leaves 18.3 M to the ladder, which now has 10 000 shelves spanning ×10¹⁵
+///   instead of 4000 spanning ×2000.
 ///   `quoteMint` moved to `ToshHookLensV3` to make room in the runtime code.
 ///   Where the v2 notes below quote 5.6 M / 2.8 M / 8.4 M / 12.6 M, read
 ///   1.8 M / 0.9 M / 2.7 M / 18.3 M.
@@ -303,13 +304,13 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     uint256 public constant FUND_BPS = 2000;
 
     /// @notice Number of discrete price shelves in Phase 2.
-    uint256 public constant TIER_COUNT = 4000;
+    uint256 public constant TIER_COUNT = 10_000;
 
-    /// @notice Token quota per shelf on a sold-out raise.  4000 × 4 575 =
+    /// @notice Token quota per shelf on a sold-out raise.  10 000 × 1 830 =
     ///         18 300 000, which keeps the total-supply arithmetic intact
     ///         (2.7 M + 18.3 M = 21 M).  A partial raise sells smaller shelves;
     ///         see `tierSize`.
-    uint256 public constant TIER_SIZE = 4_575e18;
+    uint256 public constant TIER_SIZE = 1_830e18;
 
     /// @notice Most Phase-2 issuance can ever be: every shelf cleared on a
     ///         sold-out raise.  A partial raise caps at `TIER_COUNT * tierSize`.
@@ -317,26 +318,29 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
 
     /// @dev Geometric shelf step in 1e18 fixed point: price(i) = shelfP0 · STEP^i.
     ///
-    ///      STEP = (10⁹)^(1/(TIER_COUNT-1)) = exp(ln 10⁹ / 3999) ≈ 1.005195562,
-    ///      i.e. +0.51956 % per shelf, taking the ladder from p0 to ≈ p0 × 10⁹
-    ///      across its 4000 rungs.  The step and the rung count are coupled:
+    ///      STEP = (10¹⁵)^(1/(TIER_COUNT-1)) = exp(ln 10¹⁵ / 9999) ≈ 1.003460196,
+    ///      i.e. +0.34602 % per shelf, taking the ladder from p0 to ≈ p0 × 10¹⁵
+    ///      across its 10 000 rungs.  The step and the rung count are coupled:
     ///      the span is the chosen invariant and the step is re-derived to hit
     ///      it, so neither may be edited alone.
     ///
     ///      The release schedule of equal-size shelves is `log(R)/log(SPAN)`
     ///      — the market has to reach `SPAN^x` to unlock fraction `x` of the
     ///      ladder.  v3's ladder is 6.8 × genesis instead of 1.5 ×, so the span
-    ///      has to do the work the split used to: at ×10⁹ a 10× market unlocks
-    ///      11.1 % of the ladder (2.03 M, 113 % of the 1.8 M genesis float),
-    ///      where ×2000 would unlock 30.3 % (5.54 M).
+    ///      has to do the work the split used to: at ×10¹⁵ a 10× market unlocks
+    ///      6.7 % of the ladder (1.22 M, 68 % of the 1.8 M genesis float),
+    ///      where ×2000 would unlock 30.3 % (5.54 M). Per doubling of the
+    ///      market that is 367 k tokens, 41 % of the opening pool's token side.
+    ///      Shelves are 0.20 % of that side each, so one 32-shelf call moves at
+    ///      most 6.5 % of it.
     ///
-    ///      Fitted by bisection so `_powE18(STEP, 3999)` is the largest value
-    ///      not above `10⁹ · 1e18` under this contract's floor mulDiv
-    ///      (relative error 3.5e-15), not by rounding a floating `exp`.  The
-    ///      same procedure reproduces v2's ×2000 constant exactly.  ×10⁹ still
-    ///      keeps `p0 · STEP^3999` far inside uint256 — about 30 bits more than
+    ///      Fitted by bisection so `_powE18(STEP, 9999)` is the largest value
+    ///      not above `10¹⁵ · 1e18` under this contract's floor mulDiv
+    ///      (relative error 6.3e-15), not by rounding a floating `exp`.  The
+    ///      same procedure reproduces v2's ×2000 constant exactly.  ×10¹⁵ still
+    ///      keeps `p0 · STEP^9999` far inside uint256 — about 39 bits more than
     ///      ×2000 used, out of ~200 bits of headroom on a typical raise.
-    uint256 internal constant TIER_STEP_E18 = 1_005_195_562_353_288_450;
+    uint256 internal constant TIER_STEP_E18 = 1_003_460_195_765_314_299;
 
     uint256 internal constant ONE_E18 = 1e18;
 
@@ -353,8 +357,8 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///
     ///         Sized when the ceiling was 105 %, at which a market level with
     ///         the cursor opened `ln(1.05) / ln(STEP) ≈ 25.7` shelves. At par
-    ///         each 1 % the market rises opens about 5 shelves, so 32 legs
-    ///         cover a ~6 % rally in one call.
+    ///         each 1 % the market rises opens about 2.9 shelves, so 32 legs
+    ///         cover a ~11.7 % rally in one call.
     uint256 public constant MAX_TIERS_PER_TX = 32;
 
     // ─── Genesis timing ───────────────────────────────────────────────────────
@@ -1004,14 +1008,14 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         explicit downcasts, so an overgrown constant would truncate
     ///         silently rather than revert.
     ///
-    ///           tierIndex  ≤ TIER_COUNT  = 4 000    (uint16  holds 65 535)
-    ///           tierSold   < tierSize    ≤ TIER_SIZE = 3.15e21  (uint88  holds 3.09e26)
-    ///           minted     ≤ BONDING_MAX = 1.26e25  (uint96  holds 7.92e28)
+    ///           tierIndex  ≤ TIER_COUNT  = 10 000   (uint16  holds 65 535)
+    ///           tierSold   < tierSize    ≤ TIER_SIZE = 1.83e21  (uint88  holds 3.09e26)
+    ///           minted     ≤ BONDING_MAX = 1.83e25  (uint96  holds 7.92e28)
     ///
-    ///         Shelf PRICES are still not stored.  With 4000 rungs a materialised
+    ///         Shelf PRICES are still not stored.  With 10 000 rungs a materialised
     ///         ladder would cost millions of gas at launch, and a cached
     ///         "current price" advanced by repeated multiplication would drift
-    ///         away from the closed form after 4000 truncating steps.  Prices
+    ///         away from the closed form after 10 000 truncating steps.  Prices
     ///         are instead derived on demand by `tierPriceAt()`, which is the
     ///         single source of truth for both the mint path and every view.
     struct LadderState {
@@ -2747,8 +2751,8 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     /// @notice Price of shelf `index` in ETH-wei per whole token.
     ///
     /// @dev    Closed form `shelfP0 · STEP^index`, evaluated by exponentiation
-    ///         by squaring so the cost is O(log index) — about 12 `mulDiv`
-    ///         pairs at the top of a 4000-rung ladder, versus the 3999
+    ///         by squaring so the cost is O(log index) — about 14 `mulDiv`
+    ///         pairs at the top of a 10 000-rung ladder, versus the 9 999
     ///         sequential multiplications a naive walk would need.
     ///
     ///         Anchored on `shelfP0`, not `p0`: the ladder opens one 5 %

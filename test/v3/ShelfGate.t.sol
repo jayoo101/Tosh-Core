@@ -31,7 +31,7 @@ contract ShelfGateTestV3 is V2BaseV3 {
     }
 
     function _amount() internal view returns (uint256) {
-        return hook.tierSize() / 4;
+        return hook.tierSize();
     }
 
     function _mint(address who, uint256 amount) internal returns (uint256 cost) {
@@ -84,7 +84,7 @@ contract ShelfGateTestV3 is V2BaseV3 {
         hook.mintBondingCurve(1e18, next);
 
         // The allowance is the ID's, not the wallet's: carol is untouched.
-        _mint(carol, _amount());
+        _mint(carol, _amount() / 2);
     }
 
     function test_shelfGate_newHandleKeepsTheWalletSpend() public {
