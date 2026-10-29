@@ -13,8 +13,9 @@ firing without somebody deciding about it. Neither gate is advisory.
 | Current | 177 findings, 2H/66M/57L/52I | 272 findings, 52H/220L |
 | Runtime | ~15 s, plus a slower `pip install` | ~6 s, no compile of its own |
 
-The current counts include `src/v3/`, the next version of the token, hook,
-factory and lens. It is not deployed. Its files began as copies of the v2 ones, so most
+The current counts include `src/v3/`: the token, hook, factory and lens now
+live on BNB Smart Chain `56` (deployed 2026-10-29 at block 130426789,
+`deployments/v3-56.json`), plus the new `ToshAutoLp`. Its files began as copies of the v2 ones, so most
 of its findings are the v2 findings below under a V3 file name, with the same
 disposition; the differences are noted at the end of each section.
 
@@ -145,7 +146,7 @@ and is not randomness: `delta % span` decides whether the average tick is
 rounded down toward negative infinity, the same correction Uniswap's
 `OracleLibrary.consult` makes.
 
-### Slither: v3 (not deployed)
+### Slither: v3 (deployed on `56`)
 
 74 of the 177 findings are in `src/v3/`. 57 repeat a v2 finding above,
 including the second `weak-prng` High in the v3 copy of `_twapSqrtPriceX96`
@@ -316,11 +317,14 @@ newly granted inside the token's run-once `initialize`.
 
 **`centralization-risk`** — 36. Accurate and by design. Mainnet ownership is a
 2-of-3 Gnosis Safe (SafeL2 1.4.1, `0x02DE4629129D104C63329D13A6Ca67E43db7B310`).
-Each v2 factory is owned by its `ToshLaunchGateway` — BNB
-`0xdaA1F95d4D319B04792759551587E24c751f2EaA`, USDT
-`0x16efaC5111417F810f23817B5EEB95Cb14801881` — which lets any current signer
+Each v3 factory is owned by its `ToshLaunchGateway` — BNB
+`0x790091e8965eCc1adfA40AA9b95515C6289dCE9d`, USDT
+`0xfeDDBeC9DCaa8C8E288F7D286bC4bb345B678Faf` — which lets any current signer
 of that Safe call `createLaunch` and forwards every other owner call only from
-the Safe itself. Both ladder treasuries are owned by the Safe directly. On the
+the Safe itself. Both ladder treasuries are owned by the Safe directly, and
+`ToshAutoLp` has no owner. The v2 deployment, which never listed a project, is
+held the same way through gateways `0xdaA1F95d4D319B04792759551587E24c751f2EaA`
+(BNB) and `0x16efaC5111417F810f23817B5EEB95Cb14801881` (USDT). On the
 factory the detector names the contract and twelve functions: `pause`,
 `unpause`, `renounceOwnership`, `setHardCapBounds` and `setAgentCapBounds`
 (bounded by hard-coded absolute limits), `setGenesisPaused`, `setBlacklist`
@@ -343,7 +347,7 @@ The direction is what makes it worth writing down rather than quietly fixing: it
 **overstated** the protection. A reader weighing custody risk was told three
 signatures stand between them and every owner-only dial, when two move them.
 `checkAuditDoc.mjs` now compares this claim with the shape
-`script/DeployV2.s.sol` enforces on chain 56.
+`script/DeployV3.s.sol` enforces on chain 56.
 
 Two of those 20 are worth naming, because the detector reads them exactly
 backwards: `ToshFactory.renounceOwnership` and
@@ -409,7 +413,7 @@ application would be worse than rejection.
 NatSpec written for v1 that was not rewritten when the mechanism changed: it
 mentions deposits, claims, refunds, referral commission, a launch fee, a 5 %
 shelf premium, an ETH or BEM quote asset and a creator-only `launch()`. None of
-that exists in v2. Where a comment and the code disagree, the code is right, and
+that exists in v2 or v3. Where a comment and the code disagree, the code is right, and
 `docs/WHITEPAPER_zh.md` describes what the code does.
 
 The comments are left as they are on purpose. Solidity hashes the source,

@@ -1,7 +1,9 @@
 # Tosh dApp
 
-The web interface to ToshX v2 — launch creation, the Agent ID GENESIS sale,
-the shelf ladder, the pre-launch bid market, portfolios and the operator console.
+The web interface to ToshX v3 — launch creation, the Agent ID GENESIS sale,
+the Agent ID–gated shelf ladder, the pre-launch bid market, portfolios and the
+operator console. Production ([toshx.xyz](https://toshx.xyz)) runs against the
+v3 deployment on BNB Smart Chain `56`.
 
 Next.js (App Router) · React · TypeScript · wagmi + viem · Tailwind · Vitest.
 Contracts and protocol documentation are in the [repository root](../README.md).
@@ -24,16 +26,23 @@ before the dev server binds a port rather than halfway through a page load.
 
 ```dotenv
 NEXT_PUBLIC_CHAIN_ID=97              # 56 for production
-NEXT_PUBLIC_V2_FACTORY_BNB=0x...     # ToshFactory raising in BNB
-NEXT_PUBLIC_V2_FACTORY_USDT=0x...    # ToshFactory raising in USDT
+NEXT_PUBLIC_TOSH_STACK=v3            # v3 in production; unset means v2
+NEXT_PUBLIC_V2_FACTORY_BNB=0x...     # ToshFactoryV3 raising in BNB
+NEXT_PUBLIC_V2_FACTORY_USDT=0x...    # ToshFactoryV3 raising in USDT
 NEXT_PUBLIC_V2_BIDBOOK=0x...
-NEXT_PUBLIC_V2_LENS=0x...
+NEXT_PUBLIC_V2_LENS=0x...            # ToshHookLensV3
+NEXT_PUBLIC_V2_FROM_BLOCK=...        # deploy block, where log scans start
 BSC_RPC=https://...                  # server-side only; keyed mainnet endpoint
 BSC_TESTNET_RPC=https://...          # server-side only; keyed testnet endpoint
 # NEXT_PUBLIC_RPC_URL=              # leave unset in production
 ```
 
-`src/lib/v2/config.ts` reads the v2 addresses; `node scripts/genV2Abis.mjs`
+The `V2` in the variable names is historical: v3 kept v2's interfaces, so one
+set of names serves both, and `NEXT_PUBLIC_TOSH_STACK` says which deployment
+they point at (supply constants differ: 21M on v2, 2.1B on v3). The production
+values are in [`deployments/v3-56.json`](../deployments/v3-56.json).
+`src/lib/v2/config.ts` reads them and re-checksums each address, so a value
+pasted with its case mangled still works. `node scripts/genV2Abis.mjs`
 regenerates `src/lib/v2/abis.ts` from the Foundry artefacts, and `--check` fails
 when they have drifted.
 
@@ -50,7 +59,7 @@ so a keyed URL there ships the key in every browser bundle *and* preempts the
 server-side variable — the paid node stays configured, stays billed, and is
 never called. `npm run check:secrets` enforces both halves.
 
-Supabase (project metadata, logo storage and the v2 event index) and Upstash
+Supabase (project metadata, logo storage and the on-chain event index) and Upstash
 Redis (rate limits) are configured through their own variables;
 `npm run guard:supabase` and `npm run check:upstash` report what is missing.
 
@@ -70,7 +79,7 @@ Redis (rate limits) are configured through their own variables;
 | `/register` | Agent ID registration |
 | `/portfolio` | A wallet's GENESIS buys, bids and holdings |
 | `/apply` | Project application form |
-| `/admin` | Operator console: v2 roster, featured project |
+| `/admin` | Operator console: launch roster, featured project |
 
 ### API
 
@@ -80,7 +89,7 @@ Redis (rate limits) are configured through their own variables;
 | `GET /api/projects/lookup` | Resolve a project by hook, token, name or symbol. |
 | `GET /api/projects/launch-tx` | Recover the `LaunchCreated` transaction hash for a hook, for metadata backfill. |
 | `POST /api/projects/logo` | Logo upload to Supabase Storage. |
-| `GET /api/v2/index` | Cron: indexes v2 factory, hook and bid-book events into Supabase. |
+| `GET /api/v2/index` | Cron: indexes factory, hook and bid-book events into Supabase. |
 | `GET /api/v2/genesis-buys`, `/bids`, `/trades`, `/portfolio` | Reads over that index. |
 | `GET/POST /api/admin/featured` | Homepage pin and cover, behind `CONTENT_ADMIN_SECRET`. |
 | `POST /api/apply` | Forwards a project application to the review group. |

@@ -1,10 +1,15 @@
 # Security Policy
 
-This repository contains the contracts and frontend of ToshX v2. **v2 is
-deployed on BNB Smart Chain `56`** (2026-10-28, from block 130,243,379) by
-`script/DeployV2.s.sol`; `deployments/v2-56.json` records the addresses, and all
-16 deployed contracts are an exact match on Sourcify. Reports against the source
-are welcome and read.
+This repository contains the contracts and frontend of ToshX v3. **v3 is
+deployed on BNB Smart Chain `56`** (2026-10-29, from block 130,426,789) by
+`script/DeployV3.s.sol`; `deployments/v3-56.json` records the addresses, all 18
+deployed contracts are an exact match on Sourcify, and their source is public on
+BscScan. Reports against the source are welcome and read.
+
+v2 is also still deployed (2026-10-28, from block 130,243,379,
+`deployments/v2-56.json`, 16 contracts exact on Sourcify). It lists no new
+projects and never listed one; its source is `src/` minus `src/v3/`, and most of
+it is shared with v3.
 
 The v1 contracts that remain on BNB Smart Chain `56` are no longer in this
 tree. Their source, tests and deployment records are in git history up to
@@ -23,7 +28,7 @@ contact.
 Please do not open a public issue for anything that could put funds at risk.
 
 **What to include.** A description of the flaw, the contract and function, and
-— if you have one — a Foundry test that reproduces it against `test/v2`. The
+— if you have one — a Foundry test that reproduces it against `test/v3`. The
 test is worth more than the prose.
 
 ## What we can honestly promise
@@ -31,14 +36,15 @@ test is worth more than the prose.
 - **Expect a reply in days, not minutes**, and assume nobody is awake when you
   send it. If you believe an exploit is in flight and you can see funds moving,
   say so in the first line of the report.
-- There is no automated on-chain monitor for v2 yet. Detection depends on
+- There is no automated on-chain monitor for v3 yet. Detection depends on
   people.
 - The incident commander and comms lead are the same person.
 - On `56`, the 2-of-3 Safe `0x02DE4629129D104C63329D13A6Ca67E43db7B310`
-  (SafeL2 1.4.1) owns both v2 treasuries directly, and each v2 factory is owned
+  (SafeL2 1.4.1) owns both v3 treasuries directly, and each v3 factory is owned
   by its `ToshLaunchGateway`, whose Safe is the same one: any current Safe
   signer may list through it, and every other owner call needs the Safe itself.
-  `ToshBidBook` has no owner. `DeployV2.s.sol` refuses a chain-56 deploy whose owner Safe has any other
+  `ToshBidBook` and both `ToshAutoLp` instances have no owner. v2 is held the
+  same way. `DeployV3.s.sol` refuses a chain-56 deploy whose owner Safe has any other
   shape. Two of the three owner keys are held by the operator's counterparties
   and one by the operator; that is an attestation, not a measurement, and
   nothing on chain proves it.
@@ -57,8 +63,8 @@ deployed anywhere.
 - Private keys that appear in this repository's git history. They are test and
   rehearsal keys, or v1 keys whose roles are disclosed in the v1 history. History
   was deliberately not rewritten, because commit hashes are what let anyone
-  reproduce a verified build. **Finding one of them holding a role on a v2
-  deployment would be a finding.**
+  reproduce a verified build. **Finding one of them holding a role on a v2 or
+  v3 deployment would be a finding.**
 - Anything reachable only by the owner Safe acting against its own interest.
 - Denial of service against public RPC endpoints or third-party services.
 
@@ -70,10 +76,10 @@ already know about.
 **Provenance.** These entries were written and measured against v1. The
 mechanisms they describe — the ladder treasury's buyback, its TWAP floor and
 depth cap, `addLadderToken`'s maturity gate, the shelf's same-block rule — are
-carried into v2's `src/` unchanged, so the findings stand. Two things differ:
+carried into v2's and v3's `src/` unchanged, so the findings stand. Two things differ:
 the figures are v1 measurements in the currency of the build they were taken
 on, and the tests they cite (`test/ToshV5*.t.sol`) are in git history rather
-than in this tree. In v2, `launch()` is not creator-only: the Circuit NFT holder
+than in this tree. In v2 and v3, `launch()` is not creator-only: the Circuit NFT holder
 has 48 hours after sell-out or the deadline, and then anyone may call it, so
 read "the creator picks the block" below as "whoever launches picks the block".
 
@@ -205,14 +211,15 @@ bundle `launch()` with a buy, and a searcher may backrun instead. `beforeSwap`
 has no allowlist, no cooldown and no per-transaction cap, and
 `beforeAddLiquidity` is a no-op, so JIT LP is available from the first tick.
 The genesis position is 80 % of the raise against `0.8 × raised ÷ 2P` tokens at
-the opening price 2P — 2,800,000 tokens on a sold-out raise.
+the opening price 2P — 90,000,000 tokens on a sold-out raise.
 
 Do not read the shelf's defences as covering this. The launch block shuts the
 **ladder** — `SameBlockMintForbidden` plus a pre-maturity reference price of
 `min(spot, 2P)`, so a two-block pump cannot lift the ceiling — and the first
-shelf is 3,150 × raised ÷ hard cap tokens, about 0.11 % of the token side of the
-book beside it. What bounds the pool is price rather than permission: a sniper
-pays at least the opening price 2P, plus 1 % hook tax and 0.3 % pool fee. It is a
+shelf is 183,000 × raised ÷ hard cap tokens, about 0.2 % of the token side of the
+book beside it, sold only to Agent ID holders within their shelf allowance.
+What bounds the pool is price rather than permission: a sniper
+pays at least the opening price 2P, plus 1 % hook tax and 0.2 % pool fee. It is a
 privileged first look at the float, not a discount against the GENESIS buyers,
 whose cost was P to 1.5P. In v1 this was pinned by
 `test_probeA2_launchBlockPoolFlowIsOpenByDesign` (git history).
@@ -228,7 +235,7 @@ recovered by whoever parked the price.
 Those two figures are **denominated in ETH because that is the build they were
 measured on**, and they are left unconverted rather than rescaled. `TRIGGER_STEP`
 has since been re-denominated several times — ETH, then 3.5 BNB, then 92.8 BEM,
-then 10 BEM, and in v2 **0.3 BNB** on the BNB treasury and **180 USDT** on the
+then 10 BEM, and in v2 and v3 **0.3 BNB** on the BNB treasury and **180 USDT** on the
 USDT treasury, both at 18 decimals — over an unchanged `BATCH_SIZE` of 3, so the leg a present-day
 attacker would be reaching for is a different number. Multiplying the old
 measurement through two currency rescales would produce a figure nobody measured
@@ -236,7 +243,7 @@ and present it in the same sentence as one somebody did. If this window is ever
 reopened, the measurement has to be redone rather than converted.
 
 **Closed in source on 2026-09-11, on 4663 on 2026-09-12, and carried into every
-deployment since — including `97` and both v2 treasuries on `56`.** The next
+deployment since — including `97` and the v2 and v3 treasuries on `56`.** The next
 three paragraphs are v1 history; the gate itself is what is true now.
 `addLadderToken` now reads `twapSqrtPriceX96()` itself and reverts
 `TwapNotMature` unless it answers non-zero, which puts the window out of reach
@@ -264,9 +271,23 @@ arm; the listing was retried a `TWAP_WINDOW` later and succeeded, and
 against deployed bytecode rather than a fork. That is observation, and it is
 worth more than the four directions of provenance it replaces — though note what
 it is observation *of*: the v1 source of the time on a testnet, not the retired
-4663 treasury, which never got the gate and never could. The v2 treasuries are
-built from source that carries the same gate; no token has been listed on them
-yet, so on v2 it rests on provenance until one is.
+4663 treasury, which never got the gate and never could. The v2 and v3
+treasuries are built from source that carries the same gate; no token has been
+listed on them yet, so on `56` it rests on provenance until one is.
+
+**`ToshAutoLp`'s buy is new in v3 and has not been sandwich-probed — try it.**
+80 % of every shelf payment is bought into the project's pool and added as
+liquidity, so like the treasury leg it is a public, sized market buy. It runs
+only when the TWAP is mature and spot is no more than 99 bps (in sqrt price) above it,
+spends at most `MAX_DEPTH_BPS` (2 %) of the pool's virtual quote reserve per
+run, of which about half is swapped, and refuses a swap that would move sqrt
+price more than 2 %; otherwise the amount stays pending. `flush` refuses a block
+that already has a swap. Its buys pay the 1 % tax and never carry the treasury
+buyback. The reasoning is the same ratio argument as the treasury's — impact of
+about 1 % against a round trip of about 2.4 % — but unlike the treasury there
+is no measured probe behind it. `test/v3/AutoLp.t.sol` pins the deferral rules,
+not an attacker's P&L. **A configuration where sandwiching it pays is a
+finding.**
 
 One honest limit remains. The gate fires **once, at listing**, while
 `_buybackSqrtFloor` runs on every leg thereafter, so a token listed with a
