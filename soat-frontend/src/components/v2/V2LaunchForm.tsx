@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { encodeFunctionData, getAddress, keccak256, toHex, type Address, type Hex } from 'viem'
+import { encodeFunctionData, getAddress, keccak256, toHex, zeroAddress, type Address, type Hex } from 'viem'
 import { useAccount, useReadContracts } from 'wagmi'
 
 import {
@@ -10,7 +10,7 @@ import {
 } from '@/components/ui'
 import { fill, useT } from '@/i18n'
 import { NATIVE_SYMBOL, TARGET_CHAIN_ID } from '@/lib/chain'
-import { V2_FACTORY_ABI } from '@/lib/v2/abis'
+import { V2_FACTORY_ABI, V2_GATEWAY_ABI } from '@/lib/v2/abis'
 import { V2_ENABLED, V2_FACTORY_BNB, V2_FACTORY_USDT } from '@/lib/v2/config'
 import { fmtSig, parseAmount } from './fmt'
 
@@ -30,6 +30,10 @@ type Stack = 'bnb' | 'usdt'
 /**
  * The factory owner's v2 `createLaunch`. Sends it from a connected owner
  * wallet, or exports a Safe Transaction Builder batch when the owner is a Safe.
+ *
+ * When the factory is owned by a `ToshLaunchGateway` (the live setup), the
+ * call goes to the gateway instead, which the Safe and each of its current
+ * signers may send.
  */
 export function V2LaunchForm() {
   const t = useT().v2
@@ -58,6 +62,20 @@ export function V2LaunchForm() {
   const owner = val<Address>(0)
   const [minCap, maxCap, minAgent, maxAgent] = [val<bigint>(1), val<bigint>(2), val<bigint>(3), val<bigint>(4)]
 
+  // `safe()` answering is what marks the owner as a gateway; a Safe or an EOA owner fails it.
+  const { data: gw } = useReadContracts({
+    contracts: owner
+      ? [
+          { address: owner, abi: V2_GATEWAY_ABI, functionName: 'safe', chainId: TARGET_CHAIN_ID },
+          { address: owner, abi: V2_GATEWAY_ABI, functionName: 'canLaunch', args: [address ?? zeroAddress], chainId: TARGET_CHAIN_ID },
+        ]
+      : [],
+    query: { enabled: !!owner },
+  })
+  const gatewaySafe = gw?.[0]?.status === 'success' ? gw[0].result : undefined
+  const gateway = gatewaySafe ? owner : undefined
+  const target = gateway ?? factory
+
   const hardCap = parseAmount(rawCap) ?? 0n
   // Equal bounds are a platform-wide allowance (BNB: ten 0.01 shares), not a choice.
   const fixedAgentCap = minAgent !== undefined && minAgent === maxAgent ? minAgent : undefined
@@ -79,16 +97,21 @@ export function V2LaunchForm() {
       minAgent === undefined || maxAgent === undefined || agentCap < minAgent || agentCap > maxAgent || agentCap > hardCap],
   ]
   const firstProblem = problems.find(([, bad]) => bad)?.[0]
-  const isOwner = !!address && !!owner && address.toLowerCase() === owner.toLowerCase()
+  const canSend = gateway
+    ? !!address && gw?.[1]?.status === 'success' && gw[1].result === true
+    : !!address && !!owner && address.toLowerCase() === owner.toLowerCase()
 
   const tx = useTxAction({ action: t.lfAction })
   const gate = useActionGate({
     action: t.lfSend,
     tx,
-    onAct: () => tx.send({ address: factory!, abi: V2_FACTORY_ABI, functionName: 'createLaunch', args }),
+    onAct: () => gateway
+      ? tx.send({ address: gateway, abi: V2_GATEWAY_ABI, functionName: 'createLaunch', args })
+      : tx.send({ address: factory!, abi: V2_FACTORY_ABI, functionName: 'createLaunch', args }),
     blockersInRevertOrder: revertOrder(
       { id: 'form', active: firstProblem !== undefined, label: t.lfSend, reason: firstProblem ?? '', tone: 'neutral' },
-      { id: 'owner', active: !isOwner, label: t.lfSend, reason: fill(t.lfNotOwner, { owner: owner ?? '—' }), tone: 'neutral' },
+      { id: 'owner', active: !canSend, label: t.lfSend,
+        reason: gatewaySafe ? fill(t.lfNotSigner, { safe: gatewaySafe }) : fill(t.lfNotOwner, { owner: owner ?? '—' }), tone: 'neutral' },
     ),
   })
 
@@ -99,7 +122,7 @@ export function V2LaunchForm() {
       chainId: String(TARGET_CHAIN_ID),
       createdAt: Date.now(),
       meta: { name: `ToshX v2 createLaunch ${symbol.trim()}`, description: `${name.trim()} (${unit})` },
-      transactions: [{ to: factory, value: '0', data, contractMethod: null, contractInputsValues: null }],
+      transactions: [{ to: target, value: '0', data, contractMethod: null, contractInputsValues: null }],
     }
     const url = URL.createObjectURL(new Blob([JSON.stringify(batch, null, 2)], { type: 'application/json' }))
     const a = document.createElement('a')
@@ -140,7 +163,9 @@ export function V2LaunchForm() {
           ))}
         </div>
         <ReadoutGrid columns={2}>
-          <Readout label={t.lfOwner} value={owner ?? '—'} />
+          {gatewaySafe
+            ? <Readout label={t.lfGatewaySafe} value={gatewaySafe} />
+            : <Readout label={t.lfOwner} value={owner ?? '—'} />}
           <Readout label={t.lfSalt} value={`${salt.slice(0, 10)}…`} />
         </ReadoutGrid>
         <ActionButton gate={gate} />

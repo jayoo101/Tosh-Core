@@ -26,6 +26,7 @@ const V2_CONTRACTS = [
   ['ToshFactory', 'V2_FACTORY_ABI'],
   ['ToshToken', 'V2_TOKEN_ABI'],
   ['ToshLadderTreasury', 'V2_TREASURY_ABI'],
+  ['ToshLaunchGateway', 'V2_GATEWAY_ABI'],
 ]
 
 const V3_EXTRAS = [
