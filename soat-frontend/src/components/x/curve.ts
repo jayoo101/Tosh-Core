@@ -5,7 +5,7 @@ import { V2 } from '@/lib/v2/config'
 export const SALE_TOKENS = Number(V2.SALE_SUPPLY / V2.ONE)
 export const GENESIS_TOKENS = Number(V2.GENESIS_SUPPLY / V2.ONE)
 export const LP_TOKENS_MAX = GENESIS_TOKENS - SALE_TOKENS
-export const TOTAL_TOKENS = 21_000_000
+export const TOTAL_TOKENS = Number(V2.MAX_SUPPLY / V2.ONE)
 export const SHELF_TOKENS = TOTAL_TOKENS - GENESIS_TOKENS
 
 /** A wei amount as a float, for charts and ratios only, never for a transaction. */

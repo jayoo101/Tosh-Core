@@ -81,10 +81,10 @@ function stack(raw: string | undefined): 'v2' | 'v3' {
 export const TOSH_STACK = stack(process.env.NEXT_PUBLIC_TOSH_STACK)
 export const IS_V3 = TOSH_STACK === 'v3'
 
-/** Supply constants per stack, in token wei. Total supply is 21M on both. */
+/** Supply constants per stack, in token wei. Total supply is 21M on v2 and 2.1B on v3. */
 export const STACK_SUPPLY = {
-  v2: { SALE_SUPPLY: 5_600_000n * 10n ** 18n, GENESIS_SUPPLY: 8_400_000n * 10n ** 18n, TIER_COUNT: 4_000 },
-  v3: { SALE_SUPPLY: 1_800_000n * 10n ** 18n, GENESIS_SUPPLY: 2_700_000n * 10n ** 18n, TIER_COUNT: 10_000 },
+  v2: { SALE_SUPPLY: 5_600_000n * 10n ** 18n, GENESIS_SUPPLY: 8_400_000n * 10n ** 18n, MAX_SUPPLY: 21_000_000n * 10n ** 18n, TIER_COUNT: 4_000 },
+  v3: { SALE_SUPPLY: 180_000_000n * 10n ** 18n, GENESIS_SUPPLY: 270_000_000n * 10n ** 18n, MAX_SUPPLY: 2_100_000_000n * 10n ** 18n, TIER_COUNT: 10_000 },
 } as const
 const SUPPLY = STACK_SUPPLY[TOSH_STACK]
 
@@ -97,6 +97,7 @@ export const V2 = {
   ONE: 10n ** 18n,
   ADMIN_LAUNCH_WINDOW_S: 48 * 3600,
   SALE_SUPPLY: SUPPLY.SALE_SUPPLY,
+  MAX_SUPPLY: SUPPLY.MAX_SUPPLY,
   GENESIS_SUPPLY: SUPPLY.GENESIS_SUPPLY,
   FUND_BPS: 2000n,
   TIER_COUNT: SUPPLY.TIER_COUNT,

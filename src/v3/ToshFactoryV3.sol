@@ -7,7 +7,7 @@ import {Pausable} from "../../lib/openzeppelin-contracts/contracts/utils/Pausabl
 import {ReentrancyGuard} from "../../lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 
 import {IERC20} from "../../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {ToshToken} from "../ToshToken.sol";
+import {ToshTokenV3 as ToshToken} from "./ToshTokenV3.sol";
 import {ToshLaunchpadHookV3} from "./ToshLaunchpadHookV3.sol";
 import {HookAddress} from "../libraries/HookAddress.sol";
 import {ToshCloneLib} from "../libraries/ToshCloneLib.sol";
@@ -409,7 +409,7 @@ contract ToshFactoryV3 is Ownable2Step, Pausable, ReentrancyGuard {
     ///                         fund and 19 % of shelf revenue.
     /// @param  projectFund     First recipient of the 20 % genesis share; the
     ///                         NFT holder can change it later.
-    /// @param  hardCap         Quote raised when the sale sells out (P = H/2.25M).
+    /// @param  hardCap         Quote raised when the sale sells out (P = H/225M).
     /// @param  perAgentCap     Most quote one Agent ID may spend.
     /// @param  genesisDuration 3 h, 24 h or 72 h.
     function createLaunch(

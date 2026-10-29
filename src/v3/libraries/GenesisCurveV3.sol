@@ -9,10 +9,10 @@ import {Math} from "../../../lib/openzeppelin-contracts/contracts/utils/math/Mat
 ///
 /// ── Parameterised by the hard cap, not by P ──────────────────────────────────
 ///
-///   A fully sold curve averages 1.25P over 1.8M tokens, so H = 2.25M · P. Every
-///   function takes H and never materialises P, because P = H / 2.25M is not an
+///   A fully sold curve averages 1.25P over 180M tokens, so H = 225M · P. Every
+///   function takes H and never materialises P, because P = H / 225M is not an
 ///   integer in quote units and rounding it once would move every price on the
-///   curve. With C = SALE_SUPPLY and N = 2.25M (both in token wei):
+///   curve. With C = SALE_SUPPLY and N = 225M (both in token wei):
 ///
 ///     price(s)   = P · (1 + s / 2C)              = H · (2C + s) / (2NC)
 ///     cost(s, x) = ∫ price  from s to s + x      = H · x · (4C + 2s + x) / (4NC)
@@ -34,14 +34,14 @@ import {Math} from "../../../lib/openzeppelin-contracts/contracts/utils/math/Mat
 /// ── Range ────────────────────────────────────────────────────────────────────
 ///
 ///   Every bound below assumes s + x ≤ C and H < 2¹²⁸ (the clone packs the cap
-///   into 128 bits). Then x · (4C + 2s + x) ≤ 5C² ≈ 1.6·10⁴⁹ and b² + K stays
-///   under 10⁵¹, so only the multiplication by H needs 512-bit `mulDiv`.
+///   into 128 bits). Then x · (4C + 2s + x) ≤ 5C² ≈ 1.6·10⁵³ and b² + K stays
+///   under 10⁵⁵, so only the multiplication by H needs 512-bit `mulDiv`.
 library GenesisCurveV3 {
     /// @notice Tokens the genesis sale can sell, the curve's full length.
-    uint256 internal constant SALE_SUPPLY = 1_800_000e18;
+    uint256 internal constant SALE_SUPPLY = 180_000_000e18;
 
-    /// @dev H / N = P. 2.25M = 1.8M × 1.25, the fully-sold average price.
-    uint256 internal constant N = 2_250_000e18;
+    /// @dev H / N = P. 225M = 180M × 1.25, the fully-sold average price.
+    uint256 internal constant N = 225_000_000e18;
 
     uint256 private constant C = SALE_SUPPLY;
     uint256 private constant FOUR_NC = 4 * N * C;
@@ -76,7 +76,7 @@ library GenesisCurveV3 {
         uint256 full = costOf(hardCap, sold, remaining);
         if (budget >= full) return (remaining, full);
 
-        // budget < full, so K < 5C² + 4NC / H; with b² ≤ 9C² the sum is < 10⁵¹.
+        // budget < full, so K < 5C² + 4NC / H; with b² ≤ 9C² the sum is < 10⁵⁵.
         uint256 k = Math.mulDiv(budget, FOUR_NC, hardCap);
         uint256 b = 2 * C + sold;
         amount = Math.sqrt(b * b + k) - b;

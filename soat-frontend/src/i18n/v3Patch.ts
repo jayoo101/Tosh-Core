@@ -23,9 +23,9 @@ export const V3_PATCH: { en: PartialDictionary } & Partial<Record<Locale, Partia
       shelfBlurb: 'Fixed-price supply that starts at 2× the first GENESIS price, each shelf about 0.35 % above the last. A shelf opens only while the pool trades at or above it. Binance Agent ID holders only, up to a set allowance per ID on each project.',
     },
     x: {
-      featCurveBody: 'The price rises linearly from P to 1.5P across 1.8M tokens. 20% of every buy goes to the project fund and 80% to the launch pool.',
+      featCurveBody: 'The price rises linearly from P to 1.5P across 180M tokens. 20% of every buy goes to the project fund and 80% to the launch pool.',
       featShelfBody: '10,000 fixed-price steps unlock from 2P as the pool price rises, and 80% of what they raise is added to the pool as locked liquidity. Of the pool’s 1% buy tax, 0.6% goes to the project and 0.4% to a reservoir that only buys back and burns; the sell tax is burned outright.',
-      ruleShelfBody: '10,000 steps from 2P, 1,830 tokens each on a full raise and scaled down with a partial one, unlocking as the pool price rises. Binance Agent ID holders only, with a set allowance per ID on each project. 80% buys the token and locks it into the pool as liquidity, 19% to the project, 1% to the buyback reservoir.',
+      ruleShelfBody: '10,000 steps from 2P, 183,000 tokens each on a full raise and scaled down with a partial one, unlocking as the pool price rises. Binance Agent ID holders only, with a set allowance per ID on each project. 80% buys the token and locks it into the pool as liquidity, 19% to the project, 1% to the buyback reservoir.',
     },
   },
   'zh-CN': {
@@ -39,9 +39,9 @@ export const V3_PATCH: { en: PartialDictionary } & Partial<Record<Locale, Partia
       shelfBlurb: '固定价格的供应，从首个 GENESIS 价格的 2 倍开始，每一档比上一档高约 0.35%。只有池子价格达到或高于某一档时，这一档才开放。仅限币安 Agent ID 持有者，每个 ID 在每个项目上有固定额度。',
     },
     x: {
-      featCurveBody: '在 1.8M 枚代币内，价格从 P 线性涨到 1.5P。每笔买入的 20% 进入项目资金，80% 留给开盘池。',
+      featCurveBody: '在 1.8 亿枚代币内，价格从 P 线性涨到 1.5P。每笔买入的 20% 进入项目资金，80% 留给开盘池。',
       featShelfBody: '10,000 档固定价格从 2P 起，随池子价格上涨逐档开放，货架收入的 80% 加入池子、作为锁定的流动性。池子 1% 的买入税中 0.6% 归项目，0.4% 进入只用于回购销毁的储备池；卖出税直接销毁。',
-      ruleShelfBody: '从 2P 起共 10,000 档，募满时每档 1,830 枚，未募满按募集比例缩小，随池子价格上涨逐档开放。仅限币安 Agent ID 持有者，每个 ID 在每个项目上有固定额度。80% 用于买入代币并锁进池子作为流动性，19% 归项目，1% 进入回购储备池。',
+      ruleShelfBody: '从 2P 起共 10,000 档，募满时每档 183,000 枚，未募满按募集比例缩小，随池子价格上涨逐档开放。仅限币安 Agent ID 持有者，每个 ID 在每个项目上有固定额度。80% 用于买入代币并锁进池子作为流动性，19% 归项目，1% 进入回购储备池。',
     },
   },
 }

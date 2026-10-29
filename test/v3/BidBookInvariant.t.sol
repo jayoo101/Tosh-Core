@@ -4,7 +4,7 @@ pragma solidity ^0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {V2BaseV3} from "./utils/V2BaseV3.sol";
 import {ToshLaunchpadHookV3} from "../../src/v3/ToshLaunchpadHookV3.sol";
-import {ToshToken} from "../../src/ToshToken.sol";
+import {ToshTokenV3 as ToshToken} from "../../src/v3/ToshTokenV3.sol";
 import {ToshBidBook} from "../../src/ToshBidBook.sol";
 import {MockQuoteAsset} from "../utils/MockQuoteAsset.sol";
 
@@ -23,7 +23,7 @@ contract BidBookHandlerV3 is Test {
     function place(uint256 who, uint256 premium, uint256 qty) external {
         address a = actors[who % actors.length];
         uint256 price = hook.currentGenesisPrice() + bound(premium, 0, 1e13);
-        qty = bound(qty, 1_000e18, 50_000e18);
+        qty = bound(qty, 100_000e18, 5_000_000e18);
         vm.prank(a, a);
         ids.push(book.placeBid(address(hook), price, qty));
     }
@@ -34,7 +34,7 @@ contract BidBookHandlerV3 is Test {
         uint256[] memory xs = new uint256[](1);
         uint256[] memory qs = new uint256[](1);
         xs[0] = ids[pick % ids.length];
-        qs[0] = bound(qty, 1e18, 60_000e18);
+        qs[0] = bound(qty, 1e18, 6_000_000e18);
         uint256 bal = token.balanceOf(a);
         if (qs[0] > bal) qs[0] = bal;
         vm.prank(a, a);

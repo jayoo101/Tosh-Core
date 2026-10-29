@@ -10,11 +10,11 @@ firing without somebody deciding about it. Neither gate is advisory.
 | Baseline | `slither-baseline.json` | `aderyn-baseline.json` |
 | Gate | `scripts/checkSlitherFindings.mjs` | `scripts/checkAderynFindings.mjs` |
 | Scope | `src/` (`--filter-paths lib/\|test/\|script/`) | `src/` (inferred from `foundry.toml`) |
-| Current | 176 findings, 2H/65M/57L/52I | 265 findings, 51H/214L |
+| Current | 177 findings, 2H/66M/57L/52I | 272 findings, 52H/220L |
 | Runtime | ~15 s, plus a slower `pip install` | ~6 s, no compile of its own |
 
-The current counts include `src/v3/`, the next version of the hook, factory
-and lens. It is not deployed. Its files began as copies of the v2 ones, so most
+The current counts include `src/v3/`, the next version of the token, hook,
+factory and lens. It is not deployed. Its files began as copies of the v2 ones, so most
 of its findings are the v2 findings below under a V3 file name, with the same
 disposition; the differences are noted at the end of each section.
 
@@ -147,8 +147,11 @@ rounded down toward negative infinity, the same correction Uniswap's
 
 ### Slither: v3 (not deployed)
 
-73 of the 176 findings are in `src/v3/`. 56 repeat a v2 finding above,
-including the second `weak-prng` High in the v3 copy of `_twapSqrtPriceX96`.
+74 of the 177 findings are in `src/v3/`. 57 repeat a v2 finding above,
+including the second `weak-prng` High in the v3 copy of `_twapSqrtPriceX96`
+and the second `tx-origin` in `ToshTokenV3._update`. `ToshTokenV3` is
+`ToshToken` with `MAX_SUPPLY` raised a hundredfold to 2.1 billion; nothing
+else in it changed.
 `quoteMint` moved from the hook to `ToshHookLensV3`, so its `calls-loop`,
 `unused-return` and `uninitialized-local` findings are now on the lens: the loop
 reads the hook's view getters. The v3 copies of the hook's private interfaces
@@ -177,18 +180,18 @@ the project's pool and adds it as liquidity nobody can remove:
 
 ## Aderyn disposition record
 
-23 detectors, 265 instances, all triaged, nothing unresolved.
+23 detectors, 272 instances, all triaged, nothing unresolved.
 
 Re-baselined on 2026-10-28 against v2. `src/` went from 10 source units to
 14: `ToshBidBook`, `ToshHookLens`, `AgentIdLib`, `WalletLib` and
 `GenesisCurve` arrived, and `HookDeployLib` left. Three detectors fired for the
 first time:
 
-**`tx-origin-used-for-auth`** — 1, `ToshToken._update`. The pre-launch
+**`tx-origin-used-for-auth`** — 2, `ToshToken._update` and its v3 copy. The pre-launch
 transfer rule described under Slither's `tx-origin` above. It narrows what a
 transfer may do and grants nothing.
 
-**`unsafe-erc20-operation`** — 1, `ToshToken.approve`. False positive. The line
+**`unsafe-erc20-operation`** — 2, `ToshToken.approve` and its v3 copy. False positive. The line
 is `super.approve` inside the token's own override, which refuses approvals to
 anyone but the bid book before launch; it is not a call into some other token
 whose return value could be dropped.
@@ -197,7 +200,7 @@ whose return value could be dropped.
 `AgentIdLib.ownerOfHandle`, the two registry reads `agentKeyOf` is built from.
 Kept as named steps; inlining them changes nothing.
 
-`src/v3/` adds five source units (19 in all) and 101 instances. No detector
+`src/v3/` adds six source units (20 in all) and 108 instances. No detector
 fires there that does not fire on v2. 87 sit at the v3 copy of a v2 site
 described below, apart from `quoteMint`, which is now on the lens, and
 `mintBondingCurve`'s `reentrancy-state-change`, which no longer fires: the
@@ -211,7 +214,10 @@ are in `ToshAutoLp`: `reentrancy-state-change` in `lockAcquired` (5; see
 Slither's reentrancy entries above) and `setFactory` (1, a deployer-only
 one-shot that reads the factory it is binding); `unchecked-return` on
 `settle`; two `large-numeric-literal` (the bps and ppm denominators); and the
-file-level pragma and `PUSH0` notes every source unit carries.
+file-level pragma and `PUSH0` notes every source unit carries. The last 7
+are `ToshTokenV3` repeating `ToshToken` line for line: `tx-origin-used-for-auth`,
+`unsafe-erc20-operation`, `unchecked-return`, two `centralization-risk`, and
+the pragma and `PUSH0` notes.
 
 And one stopped: **`contract-locks-ether`** — was 1, on v1's
 `ToshFactory.depositNative`. The v2 factory has no payable entry; native BNB
@@ -302,13 +308,13 @@ engages — and the answer here is no for all four. `onlyOwner` and
 `buyGenesis`, `launch` and `mintBondingCurve`, are plain storage reads with no
 call.
 
-**`unchecked-return`** — 12. Each is a return value nobody needs:
+**`unchecked-return`** — 13. Each is a return value nobody needs:
 `vault.lock` and `vault.settle()` return amounts already known to the caller
 (`collectGenesisFees`' callback returns empty bytes), `poolManager.initialize()`
 returns the resulting tick, and `_grantRole()` returns whether the role was
 newly granted inside the token's run-once `initialize`.
 
-**`centralization-risk`** — 34. Accurate and by design. Mainnet ownership is a
+**`centralization-risk`** — 36. Accurate and by design. Mainnet ownership is a
 2-of-3 Gnosis Safe (SafeL2 1.4.1, `0x02DE4629129D104C63329D13A6Ca67E43db7B310`).
 Each v2 factory is owned by its `ToshLaunchGateway` — BNB
 `0xdaA1F95d4D319B04792759551587E24c751f2EaA`, USDT
@@ -377,7 +383,7 @@ each matching a minimal interface declared elsewhere without importing it.
 Inheriting would pull another contract's interface file in for no behavioural
 change.
 
-**`push-zero-opcode`** (19) and **`unspecific-solidity-pragma`** (13) — both
+**`push-zero-opcode`** (20) and **`unspecific-solidity-pragma`** (14) — both
 follow from `^0.8.24`/`^0.8.26` pragmas plus `evm_version = "cancun"`. PUSH0 is
 intended; Shanghai-or-later is a deployment requirement this project already
 depends on more sharply elsewhere (the transient-storage mutex needs Cancun,

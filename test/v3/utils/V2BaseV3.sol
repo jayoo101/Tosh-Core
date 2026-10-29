@@ -16,7 +16,7 @@ import {TickMath} from "infinity-core/src/pool-cl/libraries/TickMath.sol";
 import {ToshFactoryV3} from "../../../src/v3/ToshFactoryV3.sol";
 import {ToshLaunchpadHookV3} from "../../../src/v3/ToshLaunchpadHookV3.sol";
 import {ToshLadderTreasury} from "../../../src/ToshLadderTreasury.sol";
-import {ToshToken} from "../../../src/ToshToken.sol";
+import {ToshTokenV3 as ToshToken} from "../../../src/v3/ToshTokenV3.sol";
 import {ToshBidBook} from "../../../src/ToshBidBook.sol";
 import {ToshHookLensV3} from "../../../src/v3/ToshHookLensV3.sol";
 import {ToshAutoLp} from "../../../src/v3/ToshAutoLp.sol";

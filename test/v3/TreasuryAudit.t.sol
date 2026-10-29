@@ -15,7 +15,7 @@ import {FullMath} from "infinity-core/src/pool-cl/libraries/FullMath.sol";
 import {V2BaseV3} from "./utils/V2BaseV3.sol";
 import {ToshLaunchpadHookV3} from "../../src/v3/ToshLaunchpadHookV3.sol";
 import {ToshLadderTreasury} from "../../src/ToshLadderTreasury.sol";
-import {ToshToken} from "../../src/ToshToken.sol";
+import {ToshTokenV3 as ToshToken} from "../../src/v3/ToshTokenV3.sol";
 
 /// @dev AttackerV3 that opens its own Vault locks and nets every delta it creates.
 contract AttackerV3 {

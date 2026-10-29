@@ -9,7 +9,7 @@ import {ILockCallback} from "infinity-core/src/interfaces/ILockCallback.sol";
 
 import {V2BaseV3} from "./utils/V2BaseV3.sol";
 import {ToshLaunchpadHookV3} from "../../src/v3/ToshLaunchpadHookV3.sol";
-import {ToshToken} from "../../src/ToshToken.sol";
+import {ToshTokenV3 as ToshToken} from "../../src/v3/ToshTokenV3.sol";
 import {ToshFactoryV3} from "../../src/v3/ToshFactoryV3.sol";
 import {ToshBidBook} from "../../src/ToshBidBook.sol";
 import {ToshLaunchGateway} from "../../src/ToshLaunchGateway.sol";
@@ -318,7 +318,7 @@ contract PeripheryAuditTestV3 is V2BaseV3 {
     function testFuzz_S2_bidBookEscrowExactUnderSplits(uint256 priceMul, uint256 qty, uint256 s1, uint256 s2) public {
         uint256 p0 = hook.currentGenesisPrice();
         uint256 price = p0 + bound(priceMul, 0, 10 * p0);
-        qty = bound(qty, 1_000e18, 20_000e18);
+        qty = bound(qty, 100_000e18, 2_000_000e18);
         vm.prank(alice, alice);
         token.approve(address(book), type(uint256).max);
 
@@ -363,15 +363,15 @@ contract PeripheryAuditTestV3 is V2BaseV3 {
     function test_S3_bidBookPostLaunchCancelOnly() public {
         uint256 p = hook.currentGenesisPrice();
         vm.prank(dave, dave);
-        uint256 id = book.placeBid(address(hook), p, 5_000e18);
+        uint256 id = book.placeBid(address(hook), p, 500_000e18);
         _launchAsAdmin(hook);
         vm.prank(dave, dave);
         vm.expectRevert(ToshBidBook.Launched.selector);
-        book.placeBid(address(hook), p * 2, 5_000e18);
+        book.placeBid(address(hook), p * 2, 500_000e18);
         uint256[] memory ids = new uint256[](1);
         uint256[] memory qs = new uint256[](1);
         ids[0] = id;
-        qs[0] = 5_000e18;
+        qs[0] = 500_000e18;
         vm.prank(alice, alice);
         vm.expectRevert(ToshBidBook.Launched.selector);
         book.fill(address(hook), ids, qs, 0);

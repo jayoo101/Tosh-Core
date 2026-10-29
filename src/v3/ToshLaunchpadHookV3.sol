@@ -65,7 +65,7 @@ import {IERC20Metadata} from "../../lib/openzeppelin-contracts/contracts/token/E
 // ──────────────────────────────────────────────────────────────────────────────
 // Local
 // ──────────────────────────────────────────────────────────────────────────────
-import {ToshToken} from "../ToshToken.sol";
+import {ToshTokenV3 as ToshToken} from "./ToshTokenV3.sol";
 import {ToshCloneLib} from "../libraries/ToshCloneLib.sol";
 import {GenesisCurveV3} from "./libraries/GenesisCurveV3.sol";
 import {AgentIdLib} from "../libraries/AgentIdLib.sol";
@@ -173,14 +173,15 @@ import {AgentIdLib} from "../libraries/AgentIdLib.sol";
 ///
 /// ── v3 ──────────────────────────────────────────────────────────────────────
 ///
-///   Same contract, resized supply. Genesis sells 1.8 M tokens on the same
-///   P → 1.5P curve (P = hardCap / 2.25M, so a given raise buys a third of the
-///   tokens at three times the price), seeds the pool with up to 0.9 M, and
-///   leaves 18.3 M to the ladder, which now has 10 000 shelves spanning ×10¹⁵
-///   instead of 4000 spanning ×2000.
+///   Same contract, resized supply. Total supply is 2.1 B (`ToshTokenV3`),
+///   100 × v2's 21 M, so every token price is 1/100 of its v2 equivalent while
+///   every ratio is unchanged. Genesis sells 180 M tokens on the same P → 1.5P
+///   curve (P = hardCap / 225M), seeds the pool with up to 90 M, and leaves
+///   1.83 B to the ladder, which now has 10 000 shelves spanning ×10¹⁵ instead
+///   of 4000 spanning ×2000.
 ///   `quoteMint` moved to `ToshHookLensV3` to make room in the runtime code.
-///   Where the v2 notes below quote 5.6 M / 2.8 M / 8.4 M / 12.6 M, read
-///   1.8 M / 0.9 M / 2.7 M / 18.3 M.
+///   Where the v2 notes below quote 5.6 M / 2.8 M / 8.4 M / 12.6 M / 21 M, read
+///   180 M / 90 M / 270 M / 1.83 B / 2.1 B.
 ///
 /// ── Lifecycle (v5) ──────────────────────────────────────────────────────────
 ///
@@ -248,8 +249,8 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
 
     // ─── Supply ───────────────────────────────────────────────────────────────
 
-    /// @notice Tokens minted at `launch()`: the genesis block, 2.7 M or about
-    ///         13 % of supply in v3 (1.8 M sold, up to 0.9 M into the pool).
+    /// @notice Tokens minted at `launch()`: the genesis block, 270 M or about
+    ///         13 % of supply in v3 (180 M sold, up to 90 M into the pool).
     ///
     /// @dev    v3 shrinks genesis to a third and lets the ladder carry the
     ///         rest. The v2 reasoning below is about holding early inflation
@@ -267,7 +268,7 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         is already priced in and already circulating.  Doubling genesis
     ///         from 4.2 M to 8.4 M cuts the 2× release from 36.5 % of the
     ///         genesis float to 13.7 %.
-    uint256 public constant GENESIS_SUPPLY = 2_700_000e18;
+    uint256 public constant GENESIS_SUPPLY = 270_000_000e18;
 
     /// @notice The genesis split, and the whole reason depositors open at a
     ///         profit.
@@ -293,8 +294,8 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         rather than the individual numbers.
     ///
     /// @dev    v2: the 55 / 45 claim / LP split above is gone with the claim.
-    ///         Genesis is now `SALE_SUPPLY` sold on the curve, up to 2.8 M into
-    ///         the pool, and the unsold remainder burned.
+    ///         Genesis is now `SALE_SUPPLY` sold on the curve, up to half of it
+    ///         into the pool, and the unsold remainder burned.
     uint256 public constant SALE_SUPPLY = GenesisCurveV3.SALE_SUPPLY;
 
     /// @notice A sale this close to `SALE_SUPPLY` counts as sold out.
@@ -306,11 +307,11 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     /// @notice Number of discrete price shelves in Phase 2.
     uint256 public constant TIER_COUNT = 10_000;
 
-    /// @notice Token quota per shelf on a sold-out raise.  10 000 × 1 830 =
-    ///         18 300 000, which keeps the total-supply arithmetic intact
-    ///         (2.7 M + 18.3 M = 21 M).  A partial raise sells smaller shelves;
+    /// @notice Token quota per shelf on a sold-out raise.  10 000 × 183 000 =
+    ///         1 830 000 000, which keeps the total-supply arithmetic intact
+    ///         (270 M + 1.83 B = 2.1 B).  A partial raise sells smaller shelves;
     ///         see `tierSize`.
-    uint256 public constant TIER_SIZE = 1_830e18;
+    uint256 public constant TIER_SIZE = 183_000e18;
 
     /// @notice Most Phase-2 issuance can ever be: every shelf cleared on a
     ///         sold-out raise.  A partial raise caps at `TIER_COUNT * tierSize`.
@@ -328,9 +329,9 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///      — the market has to reach `SPAN^x` to unlock fraction `x` of the
     ///      ladder.  v3's ladder is 6.8 × genesis instead of 1.5 ×, so the span
     ///      has to do the work the split used to: at ×10¹⁵ a 10× market unlocks
-    ///      6.7 % of the ladder (1.22 M, 68 % of the 1.8 M genesis float),
-    ///      where ×2000 would unlock 30.3 % (5.54 M). Per doubling of the
-    ///      market that is 367 k tokens, 41 % of the opening pool's token side.
+    ///      6.7 % of the ladder (122 M, 68 % of the 180 M genesis float),
+    ///      where ×2000 would unlock 30.3 % (554 M). Per doubling of the
+    ///      market that is 36.7 M tokens, 41 % of the opening pool's token side.
     ///      Shelves are 0.20 % of that side each, so one 32-shelf call moves at
     ///      most 6.5 % of it.
     ///
@@ -985,7 +986,7 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     /// @notice Tokens per shelf for this project: `TIER_SIZE × raised / hardCap`,
     ///         rounded up, fixed at launch.  Zero before launch.
     ///
-    /// @dev    The pool is seeded with 0.9 M × raised / hardCap tokens at a
+    /// @dev    The pool is seeded with 90 M × raised / hardCap tokens at a
     ///         price that does not depend on the raise, so a thin raise opens
     ///         a thin pool.  Shelves scaled by the same ratio keep every shelf
     ///         the same share of the pool on any raise; full-size shelves
@@ -1009,8 +1010,8 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///         silently rather than revert.
     ///
     ///           tierIndex  ≤ TIER_COUNT  = 10 000   (uint16  holds 65 535)
-    ///           tierSold   < tierSize    ≤ TIER_SIZE = 1.83e21  (uint88  holds 3.09e26)
-    ///           minted     ≤ BONDING_MAX = 1.83e25  (uint96  holds 7.92e28)
+    ///           tierSold   < tierSize    ≤ TIER_SIZE = 1.83e23  (uint88  holds 3.09e26)
+    ///           minted     ≤ BONDING_MAX = 1.83e27  (uint96  holds 7.92e28)
     ///
     ///         Shelf PRICES are still not stored.  With 10 000 rungs a materialised
     ///         ladder would cost millions of gas at launch, and a cached
@@ -1671,7 +1672,7 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///
     ///         The opening price does not depend on how much sold. The pool is
     ///         seeded with exactly `lpReserve` and `L = lpReserve / 2P` tokens,
-    ///         so p0 = 2P for any raise; a sold-out round has L = 0.9M. Quote
+    ///         so p0 = 2P for any raise; a sold-out round has L = 90M. Quote
     ///         sent here from outside never reaches the pool — it is paid to the
     ///         platform with the rounding remainder — so a donation cannot move
     ///         the opening price.

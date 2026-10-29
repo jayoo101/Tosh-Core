@@ -4,7 +4,7 @@ pragma solidity ^0.8.26;
 import {V2BaseV3} from "./utils/V2BaseV3.sol";
 import {MockAgentRegistryV3} from "./utils/MockAgentRegistryV3.sol";
 import {ToshLaunchpadHookV3} from "../../src/v3/ToshLaunchpadHookV3.sol";
-import {ToshToken} from "../../src/ToshToken.sol";
+import {ToshTokenV3 as ToshToken} from "../../src/v3/ToshTokenV3.sol";
 import {ToshFactoryV3} from "../../src/v3/ToshFactoryV3.sol";
 import {CircuitNFT} from "../../src/CircuitNFT.sol";
 import {GenesisCurveV3} from "../../src/v3/libraries/GenesisCurveV3.sol";
@@ -101,7 +101,7 @@ contract LaunchTestV3 is V2BaseV3 {
         uint256 raised = hook.raised();
         _launchAsAdmin(hook);
         _assertOpening(raised);
-        assertGt(token.balanceOf(DEAD), 2_000_000e18, "most is burned");
+        assertGt(token.balanceOf(DEAD), 200_000_000e18, "most is burned");
     }
 
     function test_soldOut_opensAt2PAndBurnsNearlyNothing() public {

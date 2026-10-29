@@ -5,7 +5,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {V2BaseV3} from "./utils/V2BaseV3.sol";
 import {ToshLaunchpadHookV3} from "../../src/v3/ToshLaunchpadHookV3.sol";
-import {ToshToken} from "../../src/ToshToken.sol";
+import {ToshTokenV3 as ToshToken} from "../../src/v3/ToshTokenV3.sol";
 import {ToshFactoryV3} from "../../src/v3/ToshFactoryV3.sol";
 import {AgentIdLib} from "../../src/libraries/AgentIdLib.sol";
 import {MockAgentRegistryV3} from "./utils/MockAgentRegistryV3.sol";

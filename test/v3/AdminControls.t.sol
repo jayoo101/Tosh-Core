@@ -8,7 +8,7 @@ import {MockSafeV3} from "./FactoryV2.t.sol";
 import {ToshFactoryV3} from "../../src/v3/ToshFactoryV3.sol";
 import {ToshLaunchpadHookV3} from "../../src/v3/ToshLaunchpadHookV3.sol";
 import {ToshLaunchGateway} from "../../src/ToshLaunchGateway.sol";
-import {ToshToken} from "../../src/ToshToken.sol";
+import {ToshTokenV3 as ToshToken} from "../../src/v3/ToshTokenV3.sol";
 
 /// @notice The platform's brakes and the read-only helpers around them.
 contract AdminControlsTestV3 is V2BaseV3 {

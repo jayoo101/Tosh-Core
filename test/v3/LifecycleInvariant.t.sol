@@ -11,7 +11,7 @@ import {V2BaseV3} from "./utils/V2BaseV3.sol";
 import {ToshLaunchpadHookV3} from "../../src/v3/ToshLaunchpadHookV3.sol";
 import {ToshHookLensV3} from "../../src/v3/ToshHookLensV3.sol";
 import {ToshLadderTreasury} from "../../src/ToshLadderTreasury.sol";
-import {ToshToken} from "../../src/ToshToken.sol";
+import {ToshTokenV3 as ToshToken} from "../../src/v3/ToshTokenV3.sol";
 
 /// @dev Drives one project through genesis, launch and trading in random order.
 contract LifecycleHandlerV3 is Test {
