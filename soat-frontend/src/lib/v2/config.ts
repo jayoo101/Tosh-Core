@@ -14,16 +14,21 @@
 //   NEXT_PUBLIC_TOSH_STACK        `v3` when the addresses above are a v3
 //                                 deployment (script/DeployV3.s.sol); unset or
 //                                 `v2` otherwise. One stack is live at a time.
-import type { Address } from 'viem'
+import { getAddress, type Address } from 'viem'
 import { NATIVE_SYMBOL } from '@/lib/chain'
 
 const HEX = /^0x[0-9a-fA-F]{40}$/
 
+/**
+ * Re-checksummed from the hex, so a value pasted with its case mangled still
+ * works. viem refuses a mixed-case address whose checksum is wrong at call
+ * time, and inside a read hook that refusal is a silent, permanent "loading".
+ */
 function addr(raw: string | undefined): Address | undefined {
   const v = raw?.trim()
   if (!v) return undefined
   if (!HEX.test(v)) throw new Error(`v2 config: "${v}" is not a 20-byte hex address`)
-  return v as Address
+  return getAddress(v.toLowerCase())
 }
 
 export const V2_BIDBOOK = addr(process.env.NEXT_PUBLIC_V2_BIDBOOK)
