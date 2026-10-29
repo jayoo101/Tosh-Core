@@ -366,10 +366,14 @@ jobs:
       #
       # 256 -> 250: the unrendered directory cards went, and `genesisWindow`
       # (-7) with them; `bucket` gained the ENDED case (+1).
+      #
+      # 250 -> 274: +24 in `v3Patch.test.ts`, a pair per v3 copy override in en
+      # and zh-CN (it names a real key with the same placeholders, and states
+      # no v2 ladder numbers).
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=250
+          floor=274
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the
