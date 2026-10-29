@@ -18,7 +18,7 @@ import { useBids, useGenesisState } from '@/lib/v2/useV2'
 import { WRAP_VARS } from '@/components/ProjectTerminal/useWrapNative'
 import { fmtSig, parseAmount } from './fmt'
 import { useTokenBalance, useWrapShortfall } from './hooks'
-import { RecentTrades } from './RecentTrades'
+import { RecentTrades, useBidVolume } from './RecentTrades'
 import { WalletAction } from './WalletAction'
 import { AgentAddressField, AgentModeSheet, useAgentAddress } from './AgentModeSheet'
 import { approveStep, prepSteps } from './agentSteps'
@@ -44,6 +44,7 @@ export function BidMarket({ hook, symbol, embedded = false }: {
   const { data: s } = useGenesisState(hook)
   const book = useBids(hook)
   const [side, setSide] = useState<'sell' | 'bid'>('sell')
+  const volume = useBidVolume(hook)
 
   if (!s) return <p className="text-note text-text-tertiary">…</p>
   const quote = v2Quote(s.quoteAsset, s.acceptsNative)
@@ -57,11 +58,13 @@ export function BidMarket({ hook, symbol, embedded = false }: {
       [tx.mktCurve, `${fmtSig(s.currentPrice, 18, 6)} ${quote.symbol}`],
       [tx.mktFloor, `${fmtSig(fillFloor(s.currentPrice), 18, 6)} ${quote.symbol}`],
       [tx.mktEscrow, `${fmtSig(escrowed)} ${quote.symbol}`],
+      [tx.mktVolume, volume ? `${fmtSig(volume.gross)} ${quote.symbol}` : '—'],
+      [tx.mktFills, volume ? volume.count.toLocaleString() : '—'],
     ] as const
     return (
       <div className="@container flex flex-col gap-6">
         <p className="text-body text-text-tertiary">{fill(t.marketBlurb, { quote: quote.symbol })}</p>
-        <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-card bg-border-subtle @3xl:grid-cols-4">
+        <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-card bg-border-subtle @3xl:grid-cols-3">
           {stats.map(([k, v]) => (
             <div key={k} className="flex flex-col gap-1 bg-bg-subtle p-4">
               <dt className="text-label uppercase text-text-tertiary">{k}</dt>
