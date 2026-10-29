@@ -370,10 +370,14 @@ jobs:
       # 250 -> 274: +24 in `v3Patch.test.ts`, a pair per v3 copy override in en
       # and zh-CN (it names a real key with the same placeholders, and states
       # no v2 ladder numbers).
+      #
+      # 274 -> 279: `POST /api/projects` lets the gateway signer who sent a launch
+      # publish it (+4: sent and allowed, not the sender, no longer allowed, not a
+      # gateway) and stores a cover from our bucket only (+1).
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=274
+          floor=279
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the

@@ -17,7 +17,7 @@ import {
   corsPreflight,
   readJsonBody,
 } from '../../lib/apiGuard'
-import { V2_FACTORY_ABI, V2_HOOK_ABI } from '@/lib/v2/abis'
+import { V2_FACTORY_ABI, V2_GATEWAY_ABI, V2_HOOK_ABI } from '@/lib/v2/abis'
 import { V2_FACTORIES } from '@/lib/v2/config'
 import { assertServerChain, serverPublicClient } from '../../lib/serverRpc'
 import { targetChain } from '@/lib/chain'
@@ -66,6 +66,8 @@ export async function OPTIONS(req: NextRequest) {
  */
 interface OnChainLaunch {
   creator: Address
+  /** Who sent the launch transaction: a gateway signer, or the Safe's executing owner. */
+  sender:  Address
   token:   Address
   hook:    Address
   name:    string
@@ -168,6 +170,7 @@ async function readLaunchFromChain(
   return {
     launch: {
       creator: args.creator,
+      sender:  receipt.from,
       token:   args.token,
       hook:    args.hook,
       name:    args.name,
@@ -181,7 +184,10 @@ async function readLaunchFromChain(
  *
  * Two parties are vouched for by the chain itself: the creator, and the
  * developer the hook was deployed for (`projectTreasury`, part of the clone's
- * immutable args). Launches are owner-only and the owner is a Safe, which
+ * immutable args). When the creator is a `ToshLaunchGateway`, a third is:
+ * the account that sent the launch transaction, while the gateway still lets
+ * it list (`canLaunch`). That key could list the project on its own, so it
+ * gains nothing by also describing it. Launches are owner-only and the owner is a Safe, which
  * cannot `personal_sign` — so a contract creator is checked through ERC-1271,
  * i.e. the Safe's own threshold. Any single owner's key used to be enough,
  * which let one compromised signer write a listing the 2-of-3 never approved,
@@ -211,6 +217,9 @@ async function isAuthorisedPublisher(
         address: launch.hook, abi: V2_HOOK_ABI, functionName: 'projectTreasury',
       }) as Address
       if (developer.toLowerCase() === signer.toLowerCase()) return { ok: true, signer }
+      if (launch.sender?.toLowerCase() === signer.toLowerCase() && await gatewayLets(client, launch.creator, signer)) {
+        return { ok: true, signer }
+      }
     }
     const code = await client.getCode({ address: launch.creator })
     creatorIsContract = !!code && code !== '0x'
@@ -233,6 +242,19 @@ async function isAuthorisedPublisher(
   }
 }
 
+/** `gateway.canLaunch(signer)`; false for a creator that is not a gateway. */
+async function gatewayLets(client: ReturnType<typeof serverPublicClient>, gateway: Address, signer: Address): Promise<boolean> {
+  const code = await client.getCode({ address: gateway })
+  if (!code || code === '0x') return false
+  try {
+    return await client.readContract({
+      address: gateway, abi: V2_GATEWAY_ABI, functionName: 'canLaunch', args: [signer],
+    }) as boolean
+  } catch {
+    return false
+  }
+}
+
 const LOGO_URL_MAX = 512
 const LINK_MAX = 256
 const DESCRIPTION_MAX = 500
@@ -252,9 +274,10 @@ function logoPrefix(): string | null {
  * they only need to be bounded strings.
  */
 function presentationError(body: Partial<ProjectPayload>): string | null {
-  const { logoUrl, website, twitter, telegram, description } = body
+  const { logoUrl, coverUrl, website, twitter, telegram, description } = body
   for (const [k, v, max] of [
-    ['logoUrl', logoUrl, LOGO_URL_MAX], ['website', website, LINK_MAX], ['twitter', twitter, LINK_MAX],
+    ['logoUrl', logoUrl, LOGO_URL_MAX], ['coverUrl', coverUrl, LOGO_URL_MAX],
+    ['website', website, LINK_MAX], ['twitter', twitter, LINK_MAX],
     ['telegram', telegram, LINK_MAX], ['description', description, DESCRIPTION_MAX],
   ] as const) {
     if (v === undefined || v === null) continue
@@ -262,11 +285,12 @@ function presentationError(body: Partial<ProjectPayload>): string | null {
     if (v.length > max) return `${k} is longer than ${max} characters`
     if (k !== 'description' && /[\u0000-\u001f\u007f]/.test(v)) return `${k} contains control characters`
   }
-  if (logoUrl) {
-    const prefix = logoPrefix()
-    if (!prefix || !logoUrl.startsWith(prefix) ||
-        !/^[0-9a-f]{64}\.(png|jpg|gif|webp)$/.test(logoUrl.slice(prefix.length))) {
-      return 'logoUrl must be an image uploaded through this site'
+  const prefix = logoPrefix()
+  for (const [k, url] of [['logoUrl', logoUrl], ['coverUrl', coverUrl]] as const) {
+    if (!url) continue
+    if (!prefix || !url.startsWith(prefix) ||
+        !/^[0-9a-f]{64}\.(png|jpg|gif|webp)$/.test(url.slice(prefix.length))) {
+      return `${k} must be an image uploaded through this site`
     }
   }
   return null
@@ -286,6 +310,7 @@ function presentationError(body: Partial<ProjectPayload>): string | null {
 export interface ProjectPayload {
   txHash:       string
   logoUrl:      string
+  coverUrl?:    string
   website:      string
   twitter:      string
   telegram:     string
@@ -305,7 +330,7 @@ export async function POST(req: NextRequest) {
   if (parsed.error) return applyCors(parsed.error, req, CORS_OPTS)
   const body = parsed.data
 
-  const { txHash: rawTxHash, logoUrl, website, twitter, telegram, description, signature } = body
+  const { txHash: rawTxHash, logoUrl, coverUrl, website, twitter, telegram, description, signature } = body
 
   if (typeof rawTxHash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(rawTxHash)) {
     return applyCors(
@@ -353,6 +378,7 @@ export async function POST(req: NextRequest) {
     chainId:     targetChain.id,
     txHash,
     logoUrl:     logoUrl     ?? '',
+    coverUrl:    coverUrl    ?? '',
     website:     website     ?? '',
     twitter:     twitter     ?? '',
     telegram:    telegram    ?? '',
@@ -378,7 +404,7 @@ export async function POST(req: NextRequest) {
     })
     return applyCors(
       NextResponse.json(
-        { error: "That signature is not from this launch's creator or its developer. A Safe creator must sign as the Safe itself." },
+        { error: "That signature is not from this launch's creator, its developer, or the platform signer who listed it. A Safe creator must sign as the Safe itself." },
         { status: 403 },
       ),
       req,
@@ -434,6 +460,7 @@ export async function POST(req: NextRequest) {
       name:          launch.name,
       symbol:        launch.symbol,
       logo_url:  logoUrl  || null,
+      cover_url: coverUrl || null,
       website:   website  || null,
       twitter:   twitter  || null,
       telegram:  telegram || null,
