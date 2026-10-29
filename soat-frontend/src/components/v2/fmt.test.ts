@@ -5,6 +5,7 @@ import { isContractCode } from './fmt'
 describe('isContractCode', () => {
   it('accepts no code and a 7702 designator', () => {
     expect(isContractCode(undefined)).toBe(false)
+    expect(isContractCode(null)).toBe(false)
     expect(isContractCode('0x')).toBe(false)
     expect(isContractCode(`0xef0100${'ab'.repeat(20)}`)).toBe(false)
     expect(isContractCode(`0xEF0100${'AB'.repeat(20)}`)).toBe(false)

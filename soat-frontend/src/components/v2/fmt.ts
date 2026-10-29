@@ -32,8 +32,9 @@ export function parseAmount(raw: string, decimals = 18): bigint | null {
  * Code the contracts refuse before launch: anything except none at all or an
  * EIP-7702 designator (`0xef0100 ‖ delegate`, 23 bytes). Mirrors `WalletLib`.
  */
-export function isContractCode(code: string | undefined): boolean {
-  if (code === undefined || code === '0x') return false
+export function isContractCode(code: string | null | undefined): boolean {
+  // wagmi's `useBytecode` answers `null` for an address with no code.
+  if (code == null || code === '0x') return false
   return !(code.length === 48 && code.toLowerCase().startsWith('0xef0100'))
 }
 
