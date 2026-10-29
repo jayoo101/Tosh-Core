@@ -2,9 +2,9 @@
 
 | 项 | 内容 |
 | --- | --- |
-| 状态 | 方案已确认，待写合约；**不影响已部署的 v2** |
-| 范围 | 新的 hook 实现、`GenesisCurve`、BNB / USDT 两个市场的新 factory；`ToshTokenV3` 只把总量放大 100 倍，其余规则不变 |
-| 文案 | 合约和测试完成前不改任何对外文案 |
+| 状态 | **已实现并上线**：2026-10-29 部署到 BSC 主网（区块 130,426,789，地址见 `deployments/v3-56.json`），源码已在 Sourcify 完全匹配、在 BscScan 公开；官网已切换到 v3。v2 仍在链上，但不再上架新项目 |
+| 范围 | 新的 hook 实现、`GenesisCurve`、BNB / USDT 两个市场的新 factory，以及新增的 `ToshAutoLp`；`ToshTokenV3` 只把总量放大 100 倍，其余规则不变 |
+| 文案 | 白皮书已按 v3 改写（`docs/WHITEPAPER_zh.md` v8.0）；本文与代码不一致时以代码为准 |
 
 ## 1. 参数总表
 
