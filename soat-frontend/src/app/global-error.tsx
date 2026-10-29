@@ -99,6 +99,25 @@ export default function GlobalError({ error }: GlobalErrorProps) {
             this is purely a frontend crash.
           </p>
 
+          {/* Without the message a screenshot of this page identifies nothing,
+              and a crash only some browsers hit cannot be reproduced. */}
+          <div
+            style={{
+              border: '1px solid #2B3139',
+              padding: '12px',
+              fontSize: '11px',
+              color: '#B7BDC6',
+              wordBreak: 'break-all',
+              whiteSpace: 'pre-wrap',
+            }}
+          >
+            <div style={{ color: '#5E6673', marginBottom: '4px' }}>{'// MESSAGE'}</div>
+            <div id="tosh-root-fault" style={{ color: '#EAECEF' }}>
+              {`${error.name}: ${error.message || 'unknown'}`}
+              {error.stack ? `\n${error.stack.split('\n').slice(1, 4).join('\n')}` : ''}
+            </div>
+          </div>
+
           {error.digest && (
             <div
               style={{
