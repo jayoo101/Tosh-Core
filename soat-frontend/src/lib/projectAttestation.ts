@@ -37,6 +37,8 @@ export interface ProjectAttestationFields {
   chainId: number
   txHash: string
   logoUrl: string
+  /** 16:9 card cover. Optional so a payload without one signs the same text as an empty one. */
+  coverUrl?: string
   website: string
   twitter: string
   telegram: string
@@ -54,6 +56,7 @@ export function buildProjectAttestationMessage(f: ProjectAttestationFields): str
     line('chainId', String(f.chainId)),
     line('txHash', f.txHash.toLowerCase()),
     line('logoUrl', f.logoUrl),
+    line('coverUrl', f.coverUrl ?? ''),
     line('website', f.website),
     line('twitter', f.twitter),
     line('telegram', f.telegram),

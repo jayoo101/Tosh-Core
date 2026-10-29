@@ -1,11 +1,11 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useRef, useState } from 'react'
 import { encodeFunctionData, getAddress, keccak256, toHex, zeroAddress, type Address, type Hex } from 'viem'
 import { useAccount, useReadContracts } from 'wagmi'
 
 import {
-  ActionButton, Button, Card, Field, PageHeader, Readout, ReadoutGrid,
+  ActionButton, Button, Card, Field, PageHeader, Readout,
   revertOrder, useActionGate, useTxAction,
 } from '@/components/ui'
 import { fill, useT } from '@/i18n'
@@ -13,9 +13,29 @@ import { NATIVE_SYMBOL, TARGET_CHAIN_ID } from '@/lib/chain'
 import { V2_FACTORY_ABI, V2_GATEWAY_ABI } from '@/lib/v2/abis'
 import { V2_ENABLED, V2_FACTORY_BNB, V2_FACTORY_USDT } from '@/lib/v2/config'
 import { fmtSig, parseAmount } from './fmt'
+import { ProjectInfoPanel } from './ProjectInfoPanel'
 
 /** The hook accepts exactly these windows (`InvalidDuration` otherwise). */
 const DURATIONS = [3, 24, 72] as const
+
+/** Downloads a Safe Transaction Builder file with one call. */
+function downloadSafeBatch(to: Address, data: Hex, label: string, description: string, file: string) {
+  const batch = {
+    version: '1.0',
+    chainId: String(TARGET_CHAIN_ID),
+    createdAt: Date.now(),
+    meta: { name: label, description },
+    transactions: [{ to, value: '0', data, contractMethod: null, contractInputsValues: null }],
+  }
+  const url = URL.createObjectURL(new Blob([JSON.stringify(batch, null, 2)], { type: 'application/json' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = file
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+const short = (a: string | undefined) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : '—')
 
 function checksummed(raw: string): Address | undefined {
   try {
@@ -46,7 +66,9 @@ export function V2LaunchForm() {
   const [rawCap, setRawCap] = useState('')
   const [rawAgentCap, setRawAgentCap] = useState('')
   const [hours, setHours] = useState<(typeof DURATIONS)[number]>(24)
-  const [salt] = useState<Hex>(() => keccak256(toHex(`${Date.now()}:${Math.random()}`)))
+  const [launchTx, setLaunchTx] = useState<Hex | undefined>()
+  // Drawn on first use, not during render, where server and browser would draw different ones.
+  const saltRef = useRef<Hex | null>(null)
 
   const factory = stack === 'bnb' ? V2_FACTORY_BNB : V2_FACTORY_USDT
   const unit = stack === 'bnb' ? NATIVE_SYMBOL : 'USDT'
@@ -82,10 +104,10 @@ export function V2LaunchForm() {
   const agentCap = fixedAgentCap ?? parseAmount(rawAgentCap) ?? 0n
   const dev = checksummed(developer)
   const fundAddr = checksummed(fund)
-  const args = useMemo(
-    () => [name.trim(), symbol.trim(), dev!, fundAddr!, salt, hardCap, agentCap, BigInt(hours * 3600)] as const,
-    [name, symbol, dev, fundAddr, salt, hardCap, agentCap, hours],
-  )
+  const args = () => {
+    saltRef.current ??= keccak256(toHex(`${Date.now()}:${Math.random()}`))
+    return [name.trim(), symbol.trim(), dev!, fundAddr!, saltRef.current, hardCap, agentCap, BigInt(hours * 3600)] as const
+  }
 
   const problems: [string, boolean][] = [
     [t.lfNeedName, !name.trim() || !symbol.trim()],
@@ -101,13 +123,13 @@ export function V2LaunchForm() {
     ? !!address && gw?.[1]?.status === 'success' && gw[1].result === true
     : !!address && !!owner && address.toLowerCase() === owner.toLowerCase()
 
-  const tx = useTxAction({ action: t.lfAction })
+  const tx = useTxAction({ action: t.lfAction, onConfirmed: r => setLaunchTx(r.transactionHash) })
   const gate = useActionGate({
     action: t.lfSend,
     tx,
     onAct: () => gateway
-      ? tx.send({ address: gateway, abi: V2_GATEWAY_ABI, functionName: 'createLaunch', args })
-      : tx.send({ address: factory!, abi: V2_FACTORY_ABI, functionName: 'createLaunch', args }),
+      ? tx.send({ address: gateway, abi: V2_GATEWAY_ABI, functionName: 'createLaunch', args: args() })
+      : tx.send({ address: factory!, abi: V2_FACTORY_ABI, functionName: 'createLaunch', args: args() }),
     blockersInRevertOrder: revertOrder(
       { id: 'form', active: firstProblem !== undefined, label: t.lfSend, reason: firstProblem ?? '', tone: 'neutral' },
       { id: 'owner', active: !canSend, label: t.lfSend,
@@ -116,20 +138,10 @@ export function V2LaunchForm() {
   })
 
   const exportSafe = () => {
-    const data = encodeFunctionData({ abi: V2_FACTORY_ABI, functionName: 'createLaunch', args })
-    const batch = {
-      version: '1.0',
-      chainId: String(TARGET_CHAIN_ID),
-      createdAt: Date.now(),
-      meta: { name: `ToshX v2 createLaunch ${symbol.trim()}`, description: `${name.trim()} (${unit})` },
-      transactions: [{ to: target, value: '0', data, contractMethod: null, contractInputsValues: null }],
-    }
-    const url = URL.createObjectURL(new Blob([JSON.stringify(batch, null, 2)], { type: 'application/json' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `toshx-v2-createLaunch-${symbol.trim() || 'token'}.json`
-    a.click()
-    URL.revokeObjectURL(url)
+    if (!target) return
+    const data = encodeFunctionData({ abi: V2_FACTORY_ABI, functionName: 'createLaunch', args: args() })
+    downloadSafeBatch(target, data, `ToshX v2 createLaunch ${symbol.trim()}`, `${name.trim()} (${unit})`,
+      `toshx-v2-createLaunch-${symbol.trim() || 'token'}.json`)
   }
 
   if (!V2_ENABLED || (!V2_FACTORY_BNB && !V2_FACTORY_USDT)) {
@@ -151,7 +163,10 @@ export function V2LaunchForm() {
         <Field label={`${t.hardCap} (${unit})`} value={rawCap} onValueChange={setRawCap} inputMode="decimal"
           hint={fill(t.lfCapRange, { min: fmtSig(minCap), max: fmtSig(maxCap), unit })} />
         {fixedAgentCap !== undefined ? (
-          <Readout label={`${t.perAgentCap} (${unit})`} value={fmtSig(fixedAgentCap)} />
+          <div className="flex flex-col gap-1">
+            <Readout label={`${t.perAgentCap} (${unit})`} value={fmtSig(fixedAgentCap)} />
+            <p className="text-label text-text-quiet">{t.lfAgentFixed}</p>
+          </div>
         ) : (
           <Field label={`${t.perAgentCap} (${unit})`} value={rawAgentCap} onValueChange={setRawAgentCap} inputMode="decimal"
             hint={fill(t.lfAgentRange, { min: fmtSig(minAgent), max: fmtSig(maxAgent), unit })} />
@@ -162,16 +177,14 @@ export function V2LaunchForm() {
             <Button key={h} size="sm" variant={hours === h ? 'primary' : 'ghost'} label={`${h}h`} onClick={() => setHours(h)} />
           ))}
         </div>
-        <ReadoutGrid columns={2}>
-          {gatewaySafe
-            ? <Readout label={t.lfGatewaySafe} value={gatewaySafe} />
-            : <Readout label={t.lfOwner} value={owner ?? '—'} />}
-          <Readout label={t.lfSalt} value={`${salt.slice(0, 10)}…`} />
-        </ReadoutGrid>
+        {gatewaySafe
+          ? <Readout label={t.lfGatewaySafe} value={short(gatewaySafe)} />
+          : <Readout label={t.lfOwner} value={short(owner)} />}
         <ActionButton gate={gate} />
         <Button variant="ghost" label={t.lfExport} disabled={firstProblem !== undefined} onClick={exportSafe} />
         <p className="text-label text-text-tertiary">{t.lfAfter}</p>
       </Card>
+      <ProjectInfoPanel launchTx={launchTx} />
     </div>
   )
 }

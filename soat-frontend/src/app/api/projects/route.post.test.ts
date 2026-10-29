@@ -101,16 +101,23 @@ let safeOwners: string[] | 'not-a-safe'
 let hookReadFails: boolean
 /** What the creator contract's ERC-1271 check answers. */
 let safeSigns: boolean
+/** Who sent the launch transaction, and whether a gateway creator still lets them list. */
+let sender: string
+let gatewayLets: boolean | 'not-a-gateway'
 
 vi.mock('../../lib/serverRpc', () => ({
   assertServerChain: async () => true,
   serverPublicClient: () => ({
-    getTransactionReceipt: async () => ({ status: 'success', logs: [] }),
+    getTransactionReceipt: async () => ({ status: 'success', logs: [], from: sender }),
     getCode: async () => creatorCode,
     readContract: async ({ functionName }: { functionName: string }) => {
       if (functionName === 'projectTreasury') {
         if (hookReadFails) throw new Error('rpc down')
         return DEVELOPER
+      }
+      if (functionName === 'canLaunch') {
+        if (gatewayLets === 'not-a-gateway') throw new Error('execution reverted')
+        return gatewayLets
       }
       if (functionName === 'getOwners') {
         if (safeOwners === 'not-a-safe') throw new Error('execution reverted')
@@ -152,6 +159,8 @@ beforeEach(() => {
   safeOwners = []
   hookReadFails = false
   safeSigns = false
+  sender = '0x0000000000000000000000000000000000000002'
+  gatewayLets = 'not-a-gateway'
 })
 
 afterEach(() => {
@@ -237,6 +246,47 @@ describe('POST /api/projects — the writer', () => {
     recovered = SAFE_OWNER
     expect((await post()).status).toBe(403)
     expect(adminInserts).toBe(0)
+  })
+
+  it('lets the gateway signer who sent the launch publish it', async () => {
+    creatorCode = '0x6080'
+    sender = SAFE_OWNER
+    gatewayLets = true
+    recovered = SAFE_OWNER.toLowerCase()
+    expect((await post()).status).toBe(200)
+    expect(adminInserts).toBe(1)
+  })
+
+  it('refuses a gateway signer who did not send the launch', async () => {
+    creatorCode = '0x6080'
+    gatewayLets = true
+    recovered = SAFE_OWNER
+    expect((await post()).status).toBe(403)
+    expect(adminInserts).toBe(0)
+  })
+
+  it('refuses the sender once the gateway no longer lets them list', async () => {
+    creatorCode = '0x6080'
+    sender = SAFE_OWNER
+    gatewayLets = false
+    recovered = SAFE_OWNER
+    expect((await post()).status).toBe(403)
+    expect(adminInserts).toBe(0)
+  })
+
+  it('refuses the sender when the contract creator is not a gateway', async () => {
+    creatorCode = '0x6080'
+    sender = SAFE_OWNER
+    recovered = SAFE_OWNER
+    expect((await post()).status).toBe(403)
+    expect(adminInserts).toBe(0)
+  })
+
+  it('stores a cover from our bucket and refuses one from anywhere else', async () => {
+    const cover = `https://registry.test.invalid/storage/v1/object/public/project-logos/${'b'.repeat(64)}.webp`
+    expect((await post({ coverUrl: cover })).status).toBe(200)
+    expect((adminRow as { cover_url?: string }).cover_url).toBe(cover)
+    expect((await post({ coverUrl: 'https://evil.test/c.png' })).status).toBe(422)
   })
 
   it('answers 503, not 403, when the chain cannot be asked', async () => {

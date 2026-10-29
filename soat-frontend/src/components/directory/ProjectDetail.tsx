@@ -73,6 +73,9 @@ export function ProjectDetail({ project: p }: { project: ProjectRow }) {
               ${p.symbol}
             </h1>
             <p className="mt-0.5 text-readout text-text-secondary">{p.name}</p>
+            {p.description && (
+              <p className="mt-2 max-w-2xl whitespace-pre-line text-body text-text-tertiary">{p.description}</p>
+            )}
 
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-note text-text-secondary">
               {p.token_address && (
