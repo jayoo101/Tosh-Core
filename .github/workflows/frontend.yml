@@ -374,10 +374,14 @@ jobs:
       # 274 -> 279: `POST /api/projects` lets the gateway signer who sent a launch
       # publish it (+4: sent and allowed, not the sender, no longer allowed, not a
       # gateway) and stores a cover from our bucket only (+1).
+      #
+      # 279 -> 290: address checksum repair in `config`/`getProject` and the
+      # stale-build reload guard (+5), `isContractCode(null)` (+1), and
+      # `/api/v2/volume` paging, exact sums, stale index and a failing page (+5).
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=279
+          floor=290
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the
