@@ -344,7 +344,7 @@ export const ZH_CN: PartialDictionary = {
     copyLink:          '复制链接',
 
     lfTitle:           '新建 v2 项目',
-    lfBlurb:           '仅限工厂 owner。已连接的 owner 钱包可以直接发送 createLaunch；owner 是 Safe 时，导出 Safe Transaction Builder 文件。',
+    lfBlurb:           '仅限平台 Safe 的签名人。连接签名人钱包可以直接发送 createLaunch，也可以导出 Safe Transaction Builder 文件交给 Safe 签名。',
     lfName:            '代币名称',
     lfSymbol:          '代币符号',
     lfDeveloper:       '项目方地址',
@@ -364,6 +364,8 @@ export const ZH_CN: PartialDictionary = {
     lfCapRange:        '硬顶必须在 {min} 到 {max} {unit} 之间。',
     lfAgentRange:      '每个 Agent ID 的额度必须在 {min} 到 {max} {unit} 之间，且不超过硬顶。',
     lfNotOwner:        '只有工厂 owner（{owner}）可以发送。请改为导出 Safe 批量交易。',
+    lfNotSigner:       '只有平台 Safe（{safe}）及其签名人可以发射项目。请连接签名人钱包，或导出 Safe 批量交易。',
+    lfGatewaySafe:     '平台 Safe',
 
     shelfTitle:        '货架阶梯',
     shelfBlurb:        '固定价格的供应，从首个 GENESIS 价格的 2 倍开始，每一档比上一档高约 0.19%。只有池子价格接近或高于某一档时，这一档才开放。不需要 Agent ID，普通钱包即可购买。',

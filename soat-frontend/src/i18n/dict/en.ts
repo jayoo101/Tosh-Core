@@ -467,7 +467,7 @@ export const EN = {
     copyLink:          'Copy link',
 
     lfTitle:           'New v2 launch',
-    lfBlurb:           'Factory owner only. Sends createLaunch from the connected owner wallet, or exports a Safe Transaction Builder file when the owner is a Safe.',
+    lfBlurb:           'Platform Safe signers only. Sends createLaunch from a connected signer wallet, or exports a Safe Transaction Builder file for the Safe to sign.',
     lfName:            'Token name',
     lfSymbol:          'Ticker',
     lfDeveloper:       'Developer',
@@ -487,6 +487,8 @@ export const EN = {
     lfCapRange:        'Hard cap must be between {min} and {max} {unit}.',
     lfAgentRange:      'Per-Agent-ID cap must be between {min} and {max} {unit}, and no more than the hard cap.',
     lfNotOwner:        'Only the factory owner can send this ({owner}). Export the Safe batch instead.',
+    lfNotSigner:       'Only the platform Safe ({safe}) and its signers can list a project. Connect a signer wallet, or export the Safe batch.',
+    lfGatewaySafe:     'Platform Safe',
 
     shelfTitle:        'Shelf ladder',
     shelfBlurb:        'Fixed-price supply that starts at 2× the first GENESIS price, each shelf about 0.19 % above the last. A shelf opens only while the pool trades near or above it. No Agent ID needed: any wallet can buy.',
