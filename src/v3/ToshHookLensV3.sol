@@ -102,7 +102,7 @@ contract ToshHookLensV3 {
         return GenesisCurveV3.tokensFor(h.hardCap(), h.genesisSold(), pay);
     }
 
-    /// @notice P = hardCap / 2.25M, the curve's first price.
+    /// @notice P = hardCap / 225M, the curve's first price.
     function basePrice(address hook) public view returns (uint256) {
         return GenesisCurveV3.priceAt(IToshHookViewV3(hook).hardCap(), 0);
     }

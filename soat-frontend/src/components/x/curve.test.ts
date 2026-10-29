@@ -14,8 +14,9 @@ describe('curve', () => {
   it('prices the post-buy point in wei, clamped at the sale supply', () => {
     const p = 1000n
     expect(priceAfterWei(p, 0n, 0n)).toBe(1000n)
-    expect(priceAfterWei(p, 2_800_000n * E18, 0n)).toBe(1250n)
-    expect(priceAfterWei(p, 5_000_000n * E18, 5_000_000n * E18)).toBe(1500n)
+    const sale = BigInt(SALE_TOKENS) * E18
+    expect(priceAfterWei(p, sale / 2n, 0n)).toBe(1250n)
+    expect(priceAfterWei(p, sale, sale)).toBe(1500n)
   })
 
   it('spells small prices out', () => {

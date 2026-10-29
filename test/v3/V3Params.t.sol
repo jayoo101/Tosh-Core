@@ -5,7 +5,7 @@ import {FullMath} from "infinity-core/src/pool-cl/libraries/FullMath.sol";
 
 import {V2BaseV3} from "./utils/V2BaseV3.sol";
 import {ToshLaunchpadHookV3} from "../../src/v3/ToshLaunchpadHookV3.sol";
-import {ToshToken} from "../../src/ToshToken.sol";
+import {ToshTokenV3 as ToshToken} from "../../src/v3/ToshTokenV3.sol";
 import {GenesisCurveV3} from "../../src/v3/libraries/GenesisCurveV3.sol";
 
 /// @dev The v3 supply split and ladder geometry, pinned as numbers.
@@ -22,13 +22,13 @@ contract V3ParamsTest is V2BaseV3 {
     }
 
     function test_supplySplit() public view {
-        assertEq(GenesisCurveV3.SALE_SUPPLY, 1_800_000e18, "genesis sells 1.8M");
+        assertEq(GenesisCurveV3.SALE_SUPPLY, 180_000_000e18, "genesis sells 180M");
         assertEq(GenesisCurveV3.N, GenesisCurveV3.SALE_SUPPLY * 5 / 4, "N = 1.25 x sale");
         assertEq(hook.GENESIS_SUPPLY(), GenesisCurveV3.SALE_SUPPLY * 3 / 2, "genesis = sale + half for the pool");
-        assertEq(hook.GENESIS_SUPPLY(), 2_700_000e18);
+        assertEq(hook.GENESIS_SUPPLY(), 270_000_000e18);
         assertEq(hook.TIER_COUNT(), 10_000);
-        assertEq(hook.TIER_SIZE(), 1_830e18);
-        assertEq(hook.BONDING_MAX(), 18_300_000e18);
+        assertEq(hook.TIER_SIZE(), 183_000e18);
+        assertEq(hook.BONDING_MAX(), 1_830_000_000e18);
         assertEq(hook.GENESIS_SUPPLY() + hook.BONDING_MAX(), token.MAX_SUPPLY(), "the split fills 21M exactly");
     }
 
@@ -48,15 +48,15 @@ contract V3ParamsTest is V2BaseV3 {
         assertApproxEqRel(_pow(STEP_E18, 9999), SPAN_E18, 1e4, "within 1e-14 of x1e15");
     }
 
-    function test_soldOut_opensWithPointNineMillionAndALadderSpanningOneQuadrillion() public {
+    function test_soldOut_opensWithNinetyMillionAndALadderSpanningOneQuadrillion() public {
         _sellOut(hook);
         _launchAsAdmin(hook);
 
         uint256 lpTokens = hook.GENESIS_SUPPLY() - hook.genesisSold() - token.balanceOf(DEAD);
-        assertApproxEqAbs(hook.genesisSold(), 1_800_000e18, 1e15, "sold out");
-        assertApproxEqRel(lpTokens, 900_000e18, 1e12, "pool side is half the sale");
-        assertEq(token.totalSupply(), 2_700_000e18);
-        assertEq(hook.tierSize(), 1_830e18, "full-size shelves on a sold-out raise");
+        assertApproxEqAbs(hook.genesisSold(), 180_000_000e18, 1e15, "sold out");
+        assertApproxEqRel(lpTokens, 90_000_000e18, 1e12, "pool side is half the sale");
+        assertEq(token.totalSupply(), 270_000_000e18);
+        assertEq(hook.tierSize(), 183_000e18, "full-size shelves on a sold-out raise");
 
         uint256 p0 = hook.shelfP0();
         assertEq(hook.tierPriceAt(9999), FullMath.mulDiv(p0, _pow(STEP_E18, 9999), 1e18));
@@ -65,9 +65,9 @@ contract V3ParamsTest is V2BaseV3 {
         assertEq(hook.tierPriceAt(10_000), 0, "no shelf past the top");
     }
 
-    function test_basePriceIsHardCapOverTwoPointTwoFiveMillion() public view {
-        // The same hard cap buys 1.8M tokens instead of 5.6M: P = H / 2.25M, v2 had H / 7M.
+    function test_basePriceIsHardCapOverTwoHundredTwentyFiveMillion() public view {
+        // The same hard cap buys 180M tokens instead of 5.6M: P = H / 225M, v2 had H / 7M.
         assertEq(lens.basePrice(address(hook)), GenesisCurveV3.priceAt(HARD_CAP, 0));
-        assertApproxEqRel(lens.basePrice(address(hook)), HARD_CAP * 1e18 / 2_250_000e18, 1e9);
+        assertApproxEqRel(lens.basePrice(address(hook)), HARD_CAP * 1e18 / 225_000_000e18, 1e9);
     }
 }

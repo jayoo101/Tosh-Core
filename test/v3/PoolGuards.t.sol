@@ -13,7 +13,7 @@ import {TickMath} from "infinity-core/src/pool-cl/libraries/TickMath.sol";
 
 import {V2BaseV3} from "./utils/V2BaseV3.sol";
 import {ToshLaunchpadHookV3} from "../../src/v3/ToshLaunchpadHookV3.sol";
-import {ToshToken} from "../../src/ToshToken.sol";
+import {ToshTokenV3 as ToshToken} from "../../src/v3/ToshTokenV3.sol";
 
 /// @dev A Uniswap-v2-shaped pair: liquidity arrives as plain transfers into it,
 ///      and `mint` would credit whatever balance it finds.

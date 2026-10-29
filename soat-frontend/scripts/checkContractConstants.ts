@@ -25,8 +25,10 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const V2_HOOK = 'src/ToshLaunchpadHook.sol'
 const V2_BOOK = 'src/ToshBidBook.sol'
 const CURVE = 'src/libraries/GenesisCurve.sol'
+const V2_TOKEN = 'src/ToshToken.sol'
 const V3_HOOK = 'src/v3/ToshLaunchpadHookV3.sol'
 const V3_CURVE = 'src/v3/libraries/GenesisCurveV3.sol'
+const V3_TOKEN = 'src/v3/ToshTokenV3.sol'
 
 const problems: string[] = []
 const fail = (m: string) => problems.push(m)
@@ -159,12 +161,16 @@ const FIELDS: Field[] = [
     cost: 'a v2 build measures sales against the wrong supply' },
   { sol: 'SALE_SUPPLY', file: CURVE, ts: STACK_SUPPLY.v2.SALE_SUPPLY, where: 'v2/config.STACK_SUPPLY.v2.SALE_SUPPLY',
     cost: 'a v2 build prices against a curve that sells a different supply' },
+  { sol: 'MAX_SUPPLY', file: V2_TOKEN, ts: STACK_SUPPLY.v2.MAX_SUPPLY, where: 'v2/config.STACK_SUPPLY.v2.MAX_SUPPLY',
+    cost: 'a v2 build draws the supply split against the wrong total' },
   { sol: 'TIER_COUNT', file: V2_HOOK, ts: BigInt(STACK_SUPPLY.v2.TIER_COUNT), where: 'v2/config.STACK_SUPPLY.v2.TIER_COUNT',
     cost: 'a v2 build numbers the shelves out of the wrong total' },
   { sol: 'GENESIS_SUPPLY', file: V3_HOOK, ts: STACK_SUPPLY.v3.GENESIS_SUPPLY, where: 'v2/config.STACK_SUPPLY.v3.GENESIS_SUPPLY',
     cost: 'a v3 build measures sales against the wrong supply' },
   { sol: 'SALE_SUPPLY', file: V3_CURVE, ts: STACK_SUPPLY.v3.SALE_SUPPLY, where: 'v2/config.STACK_SUPPLY.v3.SALE_SUPPLY',
     cost: 'a v3 build prices against a curve that sells a different supply' },
+  { sol: 'MAX_SUPPLY', file: V3_TOKEN, ts: STACK_SUPPLY.v3.MAX_SUPPLY, where: 'v2/config.STACK_SUPPLY.v3.MAX_SUPPLY',
+    cost: 'a v3 build draws the supply split against the wrong total' },
   { sol: 'TIER_COUNT', file: V3_HOOK, ts: BigInt(STACK_SUPPLY.v3.TIER_COUNT), where: 'v2/config.STACK_SUPPLY.v3.TIER_COUNT',
     cost: 'a v3 build numbers the shelves out of the wrong total' },
   { sol: 'FUND_BPS', file: V3_HOOK, ts: V2.FUND_BPS, where: 'v2/config.V2.FUND_BPS',

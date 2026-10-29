@@ -6,8 +6,8 @@ import {GenesisCurveV3} from "../../src/v3/libraries/GenesisCurveV3.sol";
 import {V2LibHarnessV3} from "./utils/V2LibHarnessV3.sol";
 
 contract GenesisCurveTestV3 is Test {
-    uint256 internal constant C = 1_800_000e18;
-    uint256 internal constant N = 2_250_000e18;
+    uint256 internal constant C = 180_000_000e18;
+    uint256 internal constant N = 225_000_000e18;
 
     V2LibHarnessV3 internal h;
 
@@ -22,7 +22,7 @@ contract GenesisCurveTestV3 is Test {
     // ── Shape ────────────────────────────────────────────────────────────────
 
     function test_fullCurveCostsExactlyHardCap() public view {
-        uint256[4] memory caps = [uint256(100e18), 2_250_000e18, 1e15 + 3, type(uint128).max];
+        uint256[4] memory caps = [uint256(100e18), 225_000_000e18, 1e15 + 3, type(uint128).max];
         for (uint256 i; i < caps.length; ++i) {
             assertEq(h.costOf(caps[i], 0, C), caps[i]);
         }
@@ -30,10 +30,10 @@ contract GenesisCurveTestV3 is Test {
 
     function test_priceEndpoints_100BNB() public view {
         uint256 cap = 100e18;
-        // P = 100 / 2.25M ≈ 0.00004444444 BNB, rounded up.
-        assertEq(h.priceAt(cap, 0), 44_444_444_444_445);
-        assertEq(h.priceAt(cap, C), 66_666_666_666_667);
-        assertEq(h.priceAt(cap, C / 2), 55_555_555_555_556);
+        // P = 100 / 225M ≈ 0.0000004444444 BNB, rounded up.
+        assertEq(h.priceAt(cap, 0), 444_444_444_445);
+        assertEq(h.priceAt(cap, C), 666_666_666_667);
+        assertEq(h.priceAt(cap, C / 2), 555_555_555_556);
     }
 
     function testFuzz_lastTokenCostsOneAndAHalfTimesTheFirst(uint256 cap) public view {
@@ -132,10 +132,10 @@ contract GenesisCurveTestV3 is Test {
     }
 
     function test_example_firstBuyerOfOneBNB() public view {
-        // 1 BNB at the start of a 100 BNB curve buys a little under 1/P = 22,500.
+        // 1 BNB at the start of a 100 BNB curve buys a little under 1/P = 2,250,000.
         (uint256 amount, uint256 cost) = h.tokensFor(100e18, 0, 1e18);
         assertLe(cost, 1e18);
-        assertGt(amount, 22_000e18);
-        assertLt(amount, 22_500e18);
+        assertGt(amount, 2_200_000e18);
+        assertLt(amount, 2_250_000e18);
     }
 }

@@ -3,17 +3,17 @@
   "_aderyn": "0.6.8",
   "_scope": "src/ — inferred from foundry.toml, which excludes lib/, test/ and script/",
   "_generated": "2026-10-29",
-  "sourceUnits": 19,
-  "sloc": 4032,
+  "sourceUnits": 20,
+  "sloc": 4117,
   "detectorsRun": 88,
-  "total": 265,
+  "total": 272,
   "byImpact": {
-    "High": 51,
-    "Low": 214
+    "High": 52,
+    "Low": 220
   },
   "byCheck": {
     "abi-encode-packed-hash-collision": 3,
-    "centralization-risk": 34,
+    "centralization-risk": 36,
     "costly-loop": 6,
     "internal-function-used-once": 2,
     "large-numeric-literal": 16,
@@ -22,16 +22,16 @@
     "missing-inheritance": 2,
     "modifier-used-only-once": 8,
     "non-reentrant-not-first": 8,
-    "push-zero-opcode": 19,
+    "push-zero-opcode": 20,
     "reentrancy-state-change": 46,
     "require-revert-in-loop": 10,
-    "tx-origin-used-for-auth": 1,
-    "unchecked-return": 12,
+    "tx-origin-used-for-auth": 2,
+    "unchecked-return": 13,
     "uninitialized-local-variable": 6,
     "unsafe-casting": 1,
-    "unsafe-erc20-operation": 1,
+    "unsafe-erc20-operation": 2,
     "unsafe-oz-erc721-mint": 1,
-    "unspecific-solidity-pragma": 13,
+    "unspecific-solidity-pragma": 14,
     "unused-error": 2,
     "unused-public-function": 20,
     "unused-state-variable": 1
@@ -294,6 +294,20 @@
       "impact": "Low",
       "file": "src/v3/ToshFactoryV3.sol",
       "scope": "ToshFactoryV3.unpause",
+      "count": 1
+    },
+    {
+      "check": "centralization-risk",
+      "impact": "Low",
+      "file": "src/v3/ToshTokenV3.sol",
+      "scope": "ToshTokenV3",
+      "count": 1
+    },
+    {
+      "check": "centralization-risk",
+      "impact": "Low",
+      "file": "src/v3/ToshTokenV3.sol",
+      "scope": "ToshTokenV3.mint",
       "count": 1
     },
     {
@@ -808,6 +822,13 @@
       "count": 1
     },
     {
+      "check": "push-zero-opcode",
+      "impact": "Low",
+      "file": "src/v3/ToshTokenV3.sol",
+      "scope": "<file>",
+      "count": 1
+    },
+    {
       "check": "reentrancy-state-change",
       "impact": "High",
       "file": "src/ToshBidBook.sol",
@@ -1018,6 +1039,13 @@
       "count": 1
     },
     {
+      "check": "tx-origin-used-for-auth",
+      "impact": "High",
+      "file": "src/v3/ToshTokenV3.sol",
+      "scope": "ToshTokenV3._update",
+      "count": 1
+    },
+    {
       "check": "unchecked-return",
       "impact": "Low",
       "file": "src/ToshLadderTreasury.sol",
@@ -1088,6 +1116,13 @@
       "count": 1
     },
     {
+      "check": "unchecked-return",
+      "impact": "Low",
+      "file": "src/v3/ToshTokenV3.sol",
+      "scope": "ToshTokenV3.initialize",
+      "count": 1
+    },
+    {
       "check": "uninitialized-local-variable",
       "impact": "Low",
       "file": "src/ToshLaunchpadHook.sol",
@@ -1141,6 +1176,13 @@
       "impact": "Low",
       "file": "src/ToshToken.sol",
       "scope": "ToshToken.approve",
+      "count": 1
+    },
+    {
+      "check": "unsafe-erc20-operation",
+      "impact": "Low",
+      "file": "src/v3/ToshTokenV3.sol",
+      "scope": "ToshTokenV3.approve",
       "count": 1
     },
     {
@@ -1238,6 +1280,13 @@
       "check": "unspecific-solidity-pragma",
       "impact": "Low",
       "file": "src/v3/ToshLaunchpadHookV3.sol",
+      "scope": "<file>",
+      "count": 1
+    },
+    {
+      "check": "unspecific-solidity-pragma",
+      "impact": "Low",
+      "file": "src/v3/ToshTokenV3.sol",
       "scope": "<file>",
       "count": 1
     },

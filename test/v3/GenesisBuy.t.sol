@@ -4,7 +4,7 @@ pragma solidity ^0.8.26;
 import {V2BaseV3} from "./utils/V2BaseV3.sol";
 import {MockAgentRegistryV3} from "./utils/MockAgentRegistryV3.sol";
 import {ToshLaunchpadHookV3} from "../../src/v3/ToshLaunchpadHookV3.sol";
-import {ToshToken} from "../../src/ToshToken.sol";
+import {ToshTokenV3 as ToshToken} from "../../src/v3/ToshTokenV3.sol";
 import {ToshFactoryV3} from "../../src/v3/ToshFactoryV3.sol";
 import {ToshHookLensV3} from "../../src/v3/ToshHookLensV3.sol";
 import {AgentIdLib} from "../../src/libraries/AgentIdLib.sol";
@@ -50,7 +50,7 @@ contract GenesisBuyTestV3 is V2BaseV3 {
     function test_price_risesLinearlyFromPto1_5P() public {
         uint256 p = lens.basePrice(address(hook));
         assertEq(hook.currentGenesisPrice(), p);
-        assertApproxEqRel(p, HARD_CAP * 1e18 / 2_250_000e18, 1e9);
+        assertApproxEqRel(p, HARD_CAP * 1e18 / 225_000_000e18, 1e9);
         _sellOut(hook);
         assertApproxEqRel(hook.currentGenesisPrice(), p * 3 / 2, 1e12, "ends at 1.5P");
         assertApproxEqAbs(hook.raised(), HARD_CAP, 1e6, "raises the hard cap");

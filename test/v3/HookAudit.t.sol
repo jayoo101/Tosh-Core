@@ -14,7 +14,7 @@ import {CustomRevert} from "infinity-core/src/libraries/CustomRevert.sol";
 
 import {V2BaseV3} from "./utils/V2BaseV3.sol";
 import {ToshLaunchpadHookV3} from "../../src/v3/ToshLaunchpadHookV3.sol";
-import {ToshToken} from "../../src/ToshToken.sol";
+import {ToshTokenV3 as ToshToken} from "../../src/v3/ToshTokenV3.sol";
 import {CircuitRevenueVault} from "../../src/CircuitRevenueVault.sol";
 
 /// @notice Adversarial PoCs against ToshLaunchpadHookV3 (v2).

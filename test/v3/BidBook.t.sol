@@ -3,7 +3,7 @@ pragma solidity ^0.8.26;
 
 import {V2BaseV3} from "./utils/V2BaseV3.sol";
 import {ToshLaunchpadHookV3} from "../../src/v3/ToshLaunchpadHookV3.sol";
-import {ToshToken} from "../../src/ToshToken.sol";
+import {ToshTokenV3 as ToshToken} from "../../src/v3/ToshTokenV3.sol";
 import {ToshBidBook} from "../../src/ToshBidBook.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
@@ -39,7 +39,7 @@ contract BidBookTestV3 is V2BaseV3 {
 
     function test_place_locksEscrowAndRegistersBidder() public {
         uint256 price = hook.currentGenesisPrice();
-        uint256 qty = 10_000e18;
+        uint256 qty = 1_000_000e18;
         uint256 before = quote.balanceOf(dave);
         uint256 id = _place(dave, price, qty);
         uint256 gross = Math.mulDiv(price, qty, 1e18, Math.Rounding.Ceil);
@@ -57,7 +57,7 @@ contract BidBookTestV3 is V2BaseV3 {
         uint256 p = hook.currentGenesisPrice();
         vm.prank(dave, dave);
         vm.expectRevert(ToshBidBook.PriceBelowGenesis.selector);
-        book.placeBid(address(hook), p - 1, 10_000e18);
+        book.placeBid(address(hook), p - 1, 1_000_000e18);
     }
 
     function test_revert_place_belowMinBid() public {
@@ -72,15 +72,15 @@ contract BidBookTestV3 is V2BaseV3 {
         uint256 p = hook.currentGenesisPrice();
         vm.prank(dave);
         vm.expectRevert(ToshBidBook.NotAWallet.selector);
-        book.placeBid(address(hook), p, 10_000e18);
+        book.placeBid(address(hook), p, 1_000_000e18);
         vm.prank(dave, dave);
         vm.expectRevert(ToshBidBook.UnknownHook.selector);
-        book.placeBid(address(0xBEEF), p, 10_000e18);
+        book.placeBid(address(0xBEEF), p, 1_000_000e18);
     }
 
     function test_fill_full_feesBothSides() public {
         uint256 price = hook.currentGenesisPrice() * 12 / 10;
-        uint256 qty = 20_000e18;
+        uint256 qty = 2_000_000e18;
         uint256 id = _place(dave, price, qty);
         (,,,,,,, uint256 escrow) = book.bids(id);
 
@@ -103,7 +103,7 @@ contract BidBookTestV3 is V2BaseV3 {
 
     function testFuzz_partialFills_sumToTheWhole(uint256 seed, uint8 parts) public {
         uint256 price = hook.currentGenesisPrice() + (seed % 1e12);
-        uint256 qty = 30_000e18 + (seed % 1e21);
+        uint256 qty = 3_000_000e18 + (seed % 1e23);
         uint256 id = _place(dave, price, qty);
         (,,,,,,, uint256 escrow) = book.bids(id);
 
@@ -125,9 +125,9 @@ contract BidBookTestV3 is V2BaseV3 {
 
     function test_fill_skipsBelowFloorAndCodeBidders_fillsDelegated() public {
         uint256 p0 = hook.currentGenesisPrice();
-        uint256 cheap = _place(dave, p0, 10_000e18);
-        uint256 coded = _place(trader, p0 * 2, 10_000e18);
-        uint256 good = _place(carol, p0 * 2, 10_000e18);
+        uint256 cheap = _place(dave, p0, 1_000_000e18);
+        uint256 coded = _place(trader, p0 * 2, 1_000_000e18);
+        uint256 good = _place(carol, p0 * 2, 1_000_000e18);
 
         // Curve moves up past cheap / 0.9.
         for (uint256 i; i < 8; ++i) {
@@ -146,27 +146,27 @@ contract BidBookTestV3 is V2BaseV3 {
         uint256[] memory ids = new uint256[](3);
         uint256[] memory qs = new uint256[](3);
         (ids[0], ids[1], ids[2]) = (cheap, coded, good);
-        (qs[0], qs[1], qs[2]) = (10_000e18, 10_000e18, 10_000e18);
+        (qs[0], qs[1], qs[2]) = (1_000_000e18, 1_000_000e18, 1_000_000e18);
         vm.prank(alice, alice);
         (, uint256 totalQty) = book.fill(address(hook), ids, qs, 0);
-        assertEq(totalQty, 10_000e18, "only the good bid");
-        assertEq(token.balanceOf(carol), 10_000e18);
+        assertEq(totalQty, 1_000_000e18, "only the good bid");
+        assertEq(token.balanceOf(carol), 1_000_000e18);
         _assertSolvent();
     }
 
     function test_fill_clampsToRemaining_andMinOut() public {
-        uint256 id = _place(dave, hook.currentGenesisPrice(), 10_000e18);
+        uint256 id = _place(dave, hook.currentGenesisPrice(), 1_000_000e18);
         uint256[] memory ids = new uint256[](1);
         uint256[] memory qs = new uint256[](1);
         ids[0] = id;
-        qs[0] = 50_000e18;
-        uint256 expect = book.quoteFill(id, 10_000e18);
+        qs[0] = 5_000_000e18;
+        uint256 expect = book.quoteFill(id, 1_000_000e18);
         vm.prank(alice, alice);
         vm.expectRevert(ToshBidBook.InsufficientOutput.selector);
         book.fill(address(hook), ids, qs, expect + 1);
         vm.prank(alice, alice);
         (uint256 out, uint256 q) = book.fill(address(hook), ids, qs, expect);
-        assertEq(q, 10_000e18);
+        assertEq(q, 1_000_000e18);
         assertEq(out, expect);
 
         vm.prank(alice, alice);
@@ -175,8 +175,8 @@ contract BidBookTestV3 is V2BaseV3 {
     }
 
     function test_cancel_refundsRemaining() public {
-        uint256 id = _place(dave, hook.currentGenesisPrice(), 10_000e18);
-        _fill1(alice, id, 4_000e18);
+        uint256 id = _place(dave, hook.currentGenesisPrice(), 1_000_000e18);
+        _fill1(alice, id, 400_000e18);
         (,,,,,,, uint256 left) = book.bids(id);
         uint256 before = quote.balanceOf(dave);
 
@@ -194,13 +194,13 @@ contract BidBookTestV3 is V2BaseV3 {
     }
 
     function test_afterLaunch_cancelOnly() public {
-        uint256 id = _place(dave, hook.currentGenesisPrice(), 10_000e18);
+        uint256 id = _place(dave, hook.currentGenesisPrice(), 1_000_000e18);
         _launchAsAdmin(hook);
 
         uint256 p = hook.currentGenesisPrice();
         vm.prank(carol, carol);
         vm.expectRevert(ToshBidBook.Launched.selector);
-        book.placeBid(address(hook), p, 10_000e18);
+        book.placeBid(address(hook), p, 1_000_000e18);
 
         uint256[] memory ids = new uint256[](1);
         uint256[] memory qs = new uint256[](1);

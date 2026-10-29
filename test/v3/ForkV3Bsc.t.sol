@@ -13,7 +13,7 @@ import {DeployV3} from "../../script/DeployV3.s.sol";
 import {DeployV3Harness} from "./DeployV3.t.sol";
 import {ToshLadderTreasury} from "../../src/ToshLadderTreasury.sol";
 import {ToshLaunchGateway} from "../../src/ToshLaunchGateway.sol";
-import {ToshToken} from "../../src/ToshToken.sol";
+import {ToshTokenV3 as ToshToken} from "../../src/v3/ToshTokenV3.sol";
 import {ToshAutoLp} from "../../src/v3/ToshAutoLp.sol";
 import {ToshFactoryV3} from "../../src/v3/ToshFactoryV3.sol";
 import {ToshHookLensV3} from "../../src/v3/ToshHookLensV3.sol";

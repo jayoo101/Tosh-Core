@@ -3,7 +3,7 @@ pragma solidity ^0.8.26;
 
 import {V2BaseV3} from "./utils/V2BaseV3.sol";
 import {ToshLaunchpadHookV3} from "../../src/v3/ToshLaunchpadHookV3.sol";
-import {ToshToken} from "../../src/ToshToken.sol";
+import {ToshTokenV3 as ToshToken} from "../../src/v3/ToshTokenV3.sol";
 
 contract RelayV3 {
     function push(ToshToken t, address to, uint256 v) external {

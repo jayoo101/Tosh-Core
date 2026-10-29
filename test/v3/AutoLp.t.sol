@@ -8,7 +8,7 @@ import {V2BaseV3} from "./utils/V2BaseV3.sol";
 import {ToshLaunchpadHookV3} from "../../src/v3/ToshLaunchpadHookV3.sol";
 import {ToshFactoryV3} from "../../src/v3/ToshFactoryV3.sol";
 import {ToshAutoLp} from "../../src/v3/ToshAutoLp.sol";
-import {ToshToken} from "../../src/ToshToken.sol";
+import {ToshTokenV3 as ToshToken} from "../../src/v3/ToshTokenV3.sol";
 
 contract AutoLpTestV3 is V2BaseV3 {
     using PoolIdLibrary for PoolKey;
