@@ -23,6 +23,9 @@ const filters: [string, unknown][] = []
 vi.mock('@/app/lib/serverRpc', () => ({
   serverPublicClient: () => ({
     readContract: async ({ address, functionName }: { address: string; functionName: string }) => {
+      // As viem does: a mixed-case address must carry a valid checksum.
+      const { isAddress } = await import('viem')
+      if (!isAddress(address)) throw new Error(`Address "${address}" is invalid.`)
       const handler = reads[functionName]
       if (!handler) throw new Error(`unexpected read: ${functionName}`)
       return handler(address)
@@ -136,6 +139,19 @@ describe('getProject — absence and unavailability are different answers', () =
     // Assembled from chain reads: nobody knows when the launch happened, and a
     // plausible timestamp is worse than an absent one.
     expect(result.row.created_at).toBe('')
+  })
+
+  it('finds a launch whose address arrives with its case mangled', async () => {
+    reads = {
+      tokenToHook: () => HOOK,
+      name: () => 'Case Test',
+      symbol: () => 'CASE',
+    }
+    const mangled = '0x' + TOKEN.slice(2).split('').map(c => (c === c.toUpperCase() ? c.toLowerCase() : c.toUpperCase())).join('')
+    const result = await getProject(mangled)
+    expect(result.status).toBe('found')
+    if (result.status !== 'found') return
+    expect(result.row.token_address).toBe(TOKEN)
   })
 
   it('resolves a hook address to its token', async () => {

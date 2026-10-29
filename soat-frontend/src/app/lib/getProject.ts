@@ -1,4 +1,4 @@
-import { zeroAddress } from 'viem'
+import { getAddress, zeroAddress } from 'viem'
 import type { Address } from 'viem'
 
 import { ERC20_ABI } from '@/lib/contracts'
@@ -201,7 +201,9 @@ async function getProjectFromChain(tokenOrHook: string): Promise<ProjectLookup> 
 export async function getProject(address: string): Promise<ProjectLookup> {
   const raw = address.trim()
   if (!isAddress(raw)) return { status: 'not-found' }
-  const chain = getProjectFromChain(raw)
+  // Re-checksummed because viem rejects a mixed-case address with a bad
+  // checksum, and that throw would be reported as the chain being unreachable.
+  const chain = getProjectFromChain(getAddress(raw.toLowerCase()))
   const row = await queryRegistry(raw)
   if (row) return { status: 'found', row }
   return chain
