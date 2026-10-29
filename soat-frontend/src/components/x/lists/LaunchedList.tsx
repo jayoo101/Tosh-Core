@@ -8,9 +8,10 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { fill, useT } from '@/i18n'
 import { ProjectLink, StatusPill, statusOf } from '../ProjectBits'
 import { fmtPrice, toNum } from '../curve'
+import { V2 } from '@/lib/v2/config'
 import { summaryOf, useShelfSummaries } from '../useV2Summaries'
 
-const TIER_COUNT = 4000
+const TIER_COUNT = V2.TIER_COUNT
 
 /** Every project whose pool is open, with its current shelf where it has one. */
 export function LaunchedList() {

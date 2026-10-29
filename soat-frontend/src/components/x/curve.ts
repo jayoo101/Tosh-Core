@@ -1,11 +1,12 @@
 import { formatUnits } from 'viem'
+import { V2 } from '@/lib/v2/config'
 
-/** Mirrors `GenesisCurve`: P at zero sold, 1.5P at `SALE_SUPPLY`, the pool opens at 2P. */
-export const SALE_TOKENS = 5_600_000
-export const GENESIS_TOKENS = 8_400_000
-export const LP_TOKENS_MAX = 2_800_000
-export const SHELF_TOKENS = 12_600_000
+/** Mirrors `GenesisCurve` (and `GenesisCurveV3`): P at zero sold, 1.5P at `SALE_SUPPLY`, the pool opens at 2P. */
+export const SALE_TOKENS = Number(V2.SALE_SUPPLY / V2.ONE)
+export const GENESIS_TOKENS = Number(V2.GENESIS_SUPPLY / V2.ONE)
+export const LP_TOKENS_MAX = GENESIS_TOKENS - SALE_TOKENS
 export const TOTAL_TOKENS = 21_000_000
+export const SHELF_TOKENS = TOTAL_TOKENS - GENESIS_TOKENS
 
 /** A wei amount as a float, for charts and ratios only, never for a transaction. */
 export function toNum(x: bigint | undefined | null, decimals = 18): number {

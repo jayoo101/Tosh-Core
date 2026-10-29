@@ -5,8 +5,9 @@ import { zeroAddress, type Address } from 'viem'
 import { usePublicClient, useReadContract, useReadContracts } from 'wagmi'
 
 import { TARGET_CHAIN_ID } from '@/lib/chain'
-import { V2_BIDBOOK_ABI, V2_LENS_ABI } from './abis'
-import { V2_BIDBOOK, V2_ENABLED, V2_FROM_BLOCK, V2_LENS } from './config'
+import { V2_BIDBOOK_ABI, V2_HOOK_ABI, V2_LENS_ABI } from './abis'
+import { V3_FACTORY_EXTRA_ABI, V3_LENS_EXTRA_ABI } from './abisV3'
+import { IS_V3, V2_BIDBOOK, V2_ENABLED, V2_FROM_BLOCK, V2_LENS } from './config'
 import type { LiveBid } from './bidMath'
 
 const LOG_CHUNK = 5_000n
@@ -26,6 +27,45 @@ export function useIsV2Hook(hook: Address | undefined): boolean | undefined {
   if (!V2_ENABLED || isError) return false
   if (data === undefined) return undefined
   return data !== zeroAddress
+}
+
+/** The factory that registered `hook`, from BidBook for the same reason as above. */
+function useHookFactory(hook: Address | undefined): Address | undefined {
+  const { data } = useReadContract({
+    address: V2_BIDBOOK,
+    abi: V2_BIDBOOK_ABI,
+    functionName: 'factoryOf',
+    args: hook ? [hook] : undefined,
+    chainId: TARGET_CHAIN_ID,
+    query: { enabled: IS_V3 && V2_ENABLED && hook !== undefined, staleTime: Infinity },
+  })
+  return data && data !== zeroAddress ? data : undefined
+}
+
+/** v3 only: what `account`'s Agent ID may still spend on `hook`'s shelves. 0 without an ID. */
+export function useShelfRemaining(hook: Address | undefined, account: Address | undefined) {
+  const factory = useHookFactory(hook)
+  return useReadContract({
+    address: factory,
+    abi: V3_FACTORY_EXTRA_ABI,
+    functionName: 'shelfRemaining',
+    args: hook && account ? [hook, account] : undefined,
+    chainId: TARGET_CHAIN_ID,
+    query: { enabled: IS_V3 && factory !== undefined && account !== undefined, refetchInterval: 15_000 },
+  })
+}
+
+/** Cost of minting `amount` shelf tokens: on the hook in v2, on the lens in v3. */
+export function useShelfQuote(hook: Address, amount: bigint) {
+  const v2 = useReadContract({
+    address: hook, abi: V2_HOOK_ABI, functionName: 'quoteMint', args: [amount], chainId: TARGET_CHAIN_ID,
+    query: { enabled: !IS_V3 && amount > 0n },
+  })
+  const v3 = useReadContract({
+    address: V2_LENS, abi: V3_LENS_EXTRA_ABI, functionName: 'quoteMint', args: [hook, amount], chainId: TARGET_CHAIN_ID,
+    query: { enabled: IS_V3 && V2_LENS !== undefined && amount > 0n },
+  })
+  return IS_V3 ? v3 : v2
 }
 
 export function useGenesisState(hook: Address | undefined) {

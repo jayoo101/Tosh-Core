@@ -496,6 +496,10 @@ export const EN = {
     mintAmount:        'Tokens',
     mintBtn:           'Mint from shelf',
     mintAction:        'shelf mint',
+    shelfAllowance:    'Shelf allowance left',
+    shelfAgentMissing: 'No Agent ID',
+    shelfAgentNone:    'Shelf mints need a Binance Agent ID. Mint from the wallet that holds one.',
+    shelfAgentOver:    'This mint costs more than the {remaining} {quote} this Agent ID has left on this project’s shelves.',
   },
 
   /** The ToshX black-gold shell: home, list pages and the v2 project page. */
