@@ -10,16 +10,22 @@
  *
  *   ENV  MONITOR_TELEGRAM_BOT_TOKEN / MONITOR_TELEGRAM_CHAT_ID
  *        (fall back to APPLY_TELEGRAM_BOT_TOKEN / APPLY_TELEGRAM_CHAT_ID)
+ *        HALT_KEEPER_PRIVATE_KEY — optional. A gas-only wallet that calls
+ *        `renewAll()` on a gateway whose permanent halt was last armed over a
+ *        day ago. `renewAll` is open to anyone, so the key holds no role;
+ *        unset, the monitor only alerts as a halt nears its end.
  *
  *   401  no credential    403  wrong credential    503  not configured
  *   502  an alert could not be delivered
  */
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { NextResponse, type NextRequest } from 'next/server'
-import type { Address } from 'viem'
+import { createWalletClient, http, type Address, type Hex } from 'viem'
+import { privateKeyToAccount } from 'viem/accounts'
 
-import { runChecks, type Alert } from '@/app/lib/monitor'
-import { serverPublicClient } from '@/app/lib/serverRpc'
+import { HALT_GATEWAY_ABI, gatewaysToRenew, permanentHalts, runChecks, type Alert, type Reader } from '@/app/lib/monitor'
+import { serverPublicClient, serverRpcUrl } from '@/app/lib/serverRpc'
+import { targetChain } from '@/lib/chain'
 import { indexStaleness } from '@/app/lib/v2Indexer'
 import { V2_BIDBOOK, V2_FACTORY_BNB, V2_FACTORY_USDT } from '@/lib/v2/config'
 import { reportError } from '@/lib/observability'
@@ -72,11 +78,15 @@ async function handle(req: NextRequest): Promise<NextResponse> {
   if (!token || !chatId) return NextResponse.json({ error: 'Telegram is not configured' }, { status: 503 })
 
   const client = serverPublicClient()
-  const alerts = await runChecks(
-    (address, abi, functionName) => client.readContract({ address, abi, functionName } as never) as never,
-    { factories: [V2_FACTORY_BNB, V2_FACTORY_USDT].filter((a): a is Address => !!a), bidBook: V2_BIDBOOK },
-    indexStaleness,
-  )
+  const read: Reader = (address, abi, functionName, args) =>
+    client.readContract({ address, abi, functionName, args } as never) as never
+  const factories = [V2_FACTORY_BNB, V2_FACTORY_USDT].filter((a): a is Address => !!a)
+
+  const renewed = await renewHalts(read, factories).catch((err: unknown) => {
+    reportError(err, { surface: 'api-route', extra: { route: '/api/monitor', step: 'renewAll' } })
+    return [] as string[]
+  })
+  const alerts = await runChecks(read, { factories, bidBook: V2_BIDBOOK }, indexStaleness)
 
   const sent: string[] = []
   try {
@@ -87,9 +97,28 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     }
   } catch (err) {
     reportError(err, { surface: 'api-route', extra: { route: '/api/monitor', sent: sent.length } })
-    return NextResponse.json({ error: 'delivery failed', alerts: alerts.map(a => a.id), sent }, { status: 502 })
+    return NextResponse.json({ error: 'delivery failed', alerts: alerts.map(a => a.id), sent, renewed }, { status: 502 })
   }
-  return NextResponse.json({ ok: true, alerts: alerts.map(a => a.id), sent })
+  return NextResponse.json({ ok: true, alerts: alerts.map(a => a.id), sent, renewed })
+}
+
+/** Send `renewAll()` to each gateway that is due; returns the transaction hashes. */
+async function renewHalts(read: Reader, factories: Address[]): Promise<string[]> {
+  const key = process.env.HALT_KEEPER_PRIVATE_KEY?.trim()
+  if (!key) return []
+  const due = gatewaysToRenew(await permanentHalts(read, factories), BigInt(Math.floor(Date.now() / 1000)))
+  if (due.length === 0) return []
+
+  const wallet = createWalletClient({
+    account: privateKeyToAccount((key.startsWith('0x') ? key : `0x${key}`) as Hex),
+    chain: targetChain,
+    transport: http(serverRpcUrl(), { timeout: 10_000 }),
+  })
+  const hashes: string[] = []
+  for (const gateway of due) {
+    hashes.push(await wallet.writeContract({ address: gateway, abi: HALT_GATEWAY_ABI, functionName: 'renewAll' }))
+  }
+  return hashes
 }
 
 export const GET = handle

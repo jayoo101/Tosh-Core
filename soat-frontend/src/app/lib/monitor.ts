@@ -36,9 +36,21 @@ export const FACTORY_ABI = parseAbi([
 export const GATEWAY_ABI = parseAbi(['function safe() view returns (address)'])
 export const OWNED_ABI = parseAbi(['function owner() view returns (address)'])
 export const BIDBOOK_ABI = parseAbi(['function feeRecipient() view returns (address)'])
+export const HALT_GATEWAY_ABI = parseAbi([
+  'function haltedHooks() view returns (address[])',
+  'function renewAll()',
+])
+export const HALT_UNTIL_ABI = parseAbi(['function hookLadderHaltedUntil(address) view returns (uint256)'])
 
-/** `read(address, abi, functionName)`; throws when the chain cannot answer. */
-export type Reader = <T>(address: Address, abi: readonly unknown[], functionName: string) => Promise<T>
+/** A permanent halt younger than this is left alone; older, the keeper renews it. */
+export const RENEW_AFTER = 24n * 3600n
+/** The factory's halt window, which `renewAll` re-arms in full. */
+const HALT_WINDOW = 7n * 24n * 3600n
+/** Remaining time under which a permanent halt is alerted on as unrenewed. */
+const WARN_UNDER = 2n * 24n * 3600n
+
+/** `read(address, abi, functionName, args)`; throws when the chain cannot answer. */
+export type Reader = <T>(address: Address, abi: readonly unknown[], functionName: string, args?: readonly unknown[]) => Promise<T>
 
 export interface Alert {
   /** Stable while the condition holds, so a repeat can be suppressed. */
@@ -59,7 +71,42 @@ export interface Targets {
   bidBook: Address | undefined
 }
 
-export async function runChecks(read: Reader, targets: Targets, indexProblem: () => Promise<string | null>): Promise<Alert[]> {
+export interface PermanentHalt {
+  factory: Address
+  gateway: Address
+  hook: Address
+  until: bigint
+}
+
+/**
+ * Every `haltForever` shelf halt behind `factories`. A factory whose owner is
+ * the older gateway, without `haltedHooks`, contributes none.
+ */
+export async function permanentHalts(read: Reader, factories: Address[]): Promise<PermanentHalt[]> {
+  const out: PermanentHalt[] = []
+  for (const factory of factories) {
+    const gateway = await read<Address>(factory, FACTORY_ABI, 'owner')
+    const hooks = await read<readonly Address[]>(gateway, HALT_GATEWAY_ABI, 'haltedHooks').catch(() => [] as const)
+    for (const hook of hooks) {
+      const until = await read<bigint>(factory, HALT_UNTIL_ABI, 'hookLadderHaltedUntil', [hook])
+      out.push({ factory, gateway, hook, until })
+    }
+  }
+  return out
+}
+
+/** Gateways with a permanent halt last armed more than `RENEW_AFTER` ago. */
+export function gatewaysToRenew(halts: PermanentHalt[], now: bigint): Address[] {
+  const due = halts.filter(h => h.until < now + HALT_WINDOW - RENEW_AFTER).map(h => getAddress(h.gateway))
+  return [...new Set(due)]
+}
+
+export async function runChecks(
+  read: Reader,
+  targets: Targets,
+  indexProblem: () => Promise<string | null>,
+  now: bigint = BigInt(Math.floor(Date.now() / 1000)),
+): Promise<Alert[]> {
   const alerts: Alert[] = []
   const flag = (id: string, text: string, quietSeconds = REPEAT) => alerts.push({ id, text, quietSeconds })
   const guard = async (id: string, what: string, fn: () => Promise<void>) => {
@@ -126,6 +173,17 @@ export async function runChecks(read: Reader, targets: Targets, indexProblem: ()
       }
     })
   }
+
+  await guard('halts', '永久暂停的货架', async () => {
+    for (const h of await permanentHalts(read, targets.factories)) {
+      const left = h.until - now
+      if (left <= 0n) {
+        flag(`halt-lapsed:${h.hook}`, `🚨 项目 ${short(h.hook)} 的永久暂停没人续期，已经失效，货架现在可以铸币。任何钱包调用网关 ${getAddress(h.gateway)} 的 renewAll() 即可恢复。`)
+      } else if (left < WARN_UNDER) {
+        flag(`halt-expiring:${h.hook}`, `⚠️ 项目 ${short(h.hook)} 的永久暂停还剩 ${Number(left / 3600n)} 小时就要失效，自动续期没有生效。任何钱包调用网关 ${getAddress(h.gateway)} 的 renewAll() 即可续期。`)
+      }
+    }
+  })
 
   const book = targets.bidBook
   if (book) {

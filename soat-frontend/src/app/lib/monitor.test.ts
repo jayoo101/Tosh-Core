@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { Address } from 'viem'
+import { getAddress, type Address } from 'viem'
 
-import { OWNER_SAFE, SAFE_OWNERS, runChecks, type Reader } from './monitor'
+import { OWNER_SAFE, SAFE_OWNERS, gatewaysToRenew, permanentHalts, runChecks, type Reader } from './monitor'
 
 const FACTORY: Address = '0x091d0cBD1e3B7D8b2a6fd8e0795b784EdDFfb590'
 const GATEWAY: Address = '0x790091e8965eCc1adfA40AA9b95515C6289dCE9d'
@@ -9,6 +9,8 @@ const LADDER: Address = '0x858aA8f83FCDbBdBc40eECbD2c2fC3D90aa3B632'
 const BOOK: Address = '0x7FB867b51414cbB6C0EAc6E4e6b401dee1044d98'
 const EVIL: Address = '0x000000000000000000000000000000000000bEEF'
 const ZERO: Address = '0x0000000000000000000000000000000000000000'
+const GATEWAY_V3: Address = '0x00000000000000000000000000000000000A11CE'
+const HOOK: Address = '0x45F29984B980f3D076CD05e7BE72E3b357856bC8'
 
 /** The deployment as it stands, overridable per `address:function`. */
 function chain(overrides: Record<string, unknown> = {}): Reader {
@@ -27,8 +29,8 @@ function chain(overrides: Record<string, unknown> = {}): Reader {
     [`${BOOK}:feeRecipient`]: OWNER_SAFE,
     ...overrides,
   }
-  return (async (address: Address, _abi: readonly unknown[], fn: string) => {
-    const v = state[`${address}:${fn}`]
+  return (async (address: Address, _abi: readonly unknown[], fn: string, args?: readonly unknown[]) => {
+    const v = state[args?.length ? `${address}:${fn}:${String(args[0])}` : `${address}:${fn}`]
     if (v instanceof Error) throw v
     if (v === undefined) throw new Error(`execution reverted: ${fn}`)
     return v
@@ -72,5 +74,34 @@ describe('runChecks', () => {
 
   it('flags a stale index', async () => {
     expect(await ids(chain(), async () => 'index is 900s old')).toContain('index')
+  })
+})
+
+describe('permanent shelf halts', () => {
+  const NOW = 1_800_000_000n
+  const DAY = 86_400n
+  const halted = (until: bigint) => chain({
+    [`${FACTORY}:owner`]: GATEWAY_V3,
+    [`${GATEWAY_V3}:safe`]: OWNER_SAFE,
+    [`${GATEWAY_V3}:haltedHooks`]: [HOOK],
+    [`${FACTORY}:hookLadderHaltedUntil:${HOOK}`]: until,
+  })
+  const at = async (read: Reader) => (await runChecks(read, targets, fresh, NOW)).map(a => a.id)
+
+  it('the older gateway has none, and that is not an alert', async () => {
+    expect(await permanentHalts(chain(), [FACTORY])).toEqual([])
+  })
+
+  it('a halt with days left is quiet; under two days or lapsed it alerts', async () => {
+    expect(await at(halted(NOW + 6n * DAY))).toEqual(['safe-nonce:18'])
+    expect(await at(halted(NOW + DAY))).toContain(`halt-expiring:${HOOK}`)
+    expect(await at(halted(NOW - 1n))).toContain(`halt-lapsed:${HOOK}`)
+  })
+
+  it('renews once a day, not on every run', async () => {
+    const fresh6d = await permanentHalts(halted(NOW + 7n * DAY - 3_600n), [FACTORY])
+    expect(gatewaysToRenew(fresh6d, NOW)).toEqual([])
+    const armedYesterday = await permanentHalts(halted(NOW + 6n * DAY - 1n), [FACTORY])
+    expect(gatewaysToRenew(armedYesterday, NOW)).toEqual([getAddress(GATEWAY_V3)])
   })
 })
