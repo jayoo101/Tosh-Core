@@ -248,7 +248,7 @@ export const EN = {
     closeDrawer:     'close drawer',
     title:           'My Profile',
     close:           'close',
-    switchTitle:     'Re-open wallet account picker (EIP-2255)',
+    switchTitle:     'Disconnect, then choose a wallet or account',
     switch:          'Switch',
     disconnectTitle: 'Terminate wagmi session for this address',
     disconnect:      'Disconnect',
