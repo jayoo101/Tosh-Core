@@ -1,4 +1,4 @@
-import { ArrowLeftRight, BadgeCheck, FilePlus, Rocket, Store, type LucideIcon } from 'lucide-react'
+import { ArrowLeftRight, BadgeCheck, FilePlus, FileText, Rocket, Store, type LucideIcon } from 'lucide-react'
 
 import type { Dictionary } from '@/i18n'
 
@@ -17,6 +17,7 @@ export function siteNav(t: Dictionary): NavItem[] {
     { href: '/launchpad', label: t.x.navLaunching, icon: Rocket,         exact: false },
     { href: '/launched',  label: t.x.navLaunched,  icon: BadgeCheck,     exact: false },
     { href: '/market',    label: t.x.navMarket,    icon: ArrowLeftRight, exact: false },
+    { href: '/whitepaper', label: t.x.navWhitepaper, icon: FileText,     exact: false },
     { href: '/apply',     label: t.site.navApply,  icon: FilePlus,       exact: false },
   ]
 }
