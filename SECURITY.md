@@ -36,8 +36,12 @@ test is worth more than the prose.
 - **Expect a reply in days, not minutes**, and assume nobody is awake when you
   send it. If you believe an exploit is in flight and you can see funds moving,
   say so in the first line of the report.
-- There is no automated on-chain monitor for v3 yet. Detection depends on
-  people.
+- A Vercel cron (`/api/monitor`, every 5 minutes) checks the custody below —
+  Safe signers and threshold, factory ownership through the gateway, treasury
+  and fee recipients, the BidBook a factory points at, the index's freshness —
+  and posts to the team's Telegram on a change, plus once per Safe transaction.
+  It watches configuration, not trading: an exploit that drains a pool through
+  correct-looking swaps is still detected by people.
 - The incident commander and comms lead are the same person.
 - On `56`, the 2-of-3 Safe `0x02DE4629129D104C63329D13A6Ca67E43db7B310`
   (SafeL2 1.4.1) owns both v3 treasuries directly, and each v3 factory is owned
