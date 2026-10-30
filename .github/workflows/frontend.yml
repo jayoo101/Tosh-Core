@@ -380,10 +380,12 @@ jobs:
       # `/api/v2/volume` paging, exact sums, stale index and a failing page (+5).
       #
       # 290 -> 291: `qtyForBudget`, the bid form's amount-to-tokens conversion.
+      #
+      # 291 -> 298: `app/lib/monitor`, the on-chain custody checks (+7).
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=291
+          floor=298
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the
