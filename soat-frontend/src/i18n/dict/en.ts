@@ -386,7 +386,7 @@ export const EN = {
     placeQty:          'You get',
     placeAmount:       'Amount ({quote})',
     placeBest:         'Best',
-    placeBestHint:     'Best bid {p} {quote}. ',
+    placeBestHint:     'Best bid {p} {quote}.',
     placeQtyMin:       'A bid must be for at least 1 token.',
     placeEscrow:       'Locks {amount} {quote}, including the 1 % fee.',
     placeMin:          'The price must be at least the latest GENESIS price, {p} {quote}.',

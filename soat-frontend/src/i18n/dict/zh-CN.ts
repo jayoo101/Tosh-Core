@@ -263,7 +263,7 @@ export const ZH_CN: PartialDictionary = {
     placeQty:          '可买数量',
     placeAmount:       '金额（{quote}）',
     placeBest:         '档一',
-    placeBestHint:     '档一（当前最高买价）{p} {quote}；',
+    placeBestHint:     '档一（当前最高买价）{p} {quote}。',
     placeQtyMin:       '一笔挂单至少要买 1 枚代币。',
     placeEscrow:       '实际锁定 {amount} {quote}，已含 1% 手续费。',
     placeMin:          '价格不能低于最新的 GENESIS 价格 {p} {quote}。',

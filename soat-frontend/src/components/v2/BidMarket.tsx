@@ -300,7 +300,10 @@ function PlacePanel({ hook, symbol, quote, price, best, minBid, onDone }: {
         onValueChange={setRawPrice}
         inputMode="decimal"
         placeholder={formatUnits(price, 18)}
-        hint={`${best > 0n ? fill(t.placeBestHint, { p: fmtSig(best, 18, 6), quote: quote.symbol }) : ''}${fill(t.placeMin, { p: fmtSig(price, 18, 6), quote: quote.symbol })}`}
+        hint={[
+          best > 0n && fill(t.placeBestHint, { p: fmtSig(best, 18, 6), quote: quote.symbol }),
+          fill(t.placeMin, { p: fmtSig(price, 18, 6), quote: quote.symbol }),
+        ].filter(Boolean).join(' ')}
         affix={<FieldAffix label={t.placeBest} onClick={() => setRawPrice(formatUnits(best > price ? best : price, 18))} />}
       />
       <Field
