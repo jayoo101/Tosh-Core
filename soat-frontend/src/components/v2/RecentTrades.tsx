@@ -49,7 +49,7 @@ export function RecentTrades({ hook, quote }: { hook: Address; quote: V2Quote })
           </tr>
         </thead>
         <tbody>
-          {data.slice(0, 50).map(r => (
+          {data.slice(0, 10).map(r => (
             <tr key={`${r.tx_hash}-${r.log_index}`}>
               <td className="py-1">{fmtSig(BigInt(r.price), 18, 6)}</td>
               <td className="py-1 text-right">{fmtSig(BigInt(r.qty))}</td>

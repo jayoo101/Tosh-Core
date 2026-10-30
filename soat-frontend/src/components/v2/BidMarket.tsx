@@ -152,7 +152,7 @@ export function BidMarket({ hook, symbol, embedded = false }: {
 
 function DepthTable({ bids, quote, floor }: { bids: readonly LiveBid[]; quote: V2Quote; floor: bigint }) {
   const t = useT().v2
-  const levels = useMemo(() => depth(bids), [bids])
+  const levels = useMemo(() => depth(bids).slice(0, 20), [bids])
   return (
     <Card title={t.depth}>
       {levels.length === 0 ? (
