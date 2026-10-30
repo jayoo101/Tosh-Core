@@ -48,9 +48,10 @@ interface ISafeOwnersV3 {
 //    USDT_MIN_BUY [5e18]    USDT_HARDCAP_MIN [500e18] USDT_HARDCAP_MAX [300000e18]
 //    USDT_AGENTCAP_MIN [5e18]    USDT_AGENTCAP_MAX [30000e18]
 //    BNB_TRIGGER_STEP [0.3e18]   USDT_TRIGGER_STEP [180e18]
-//    BNB_SHELF_CAP [0.7e18]      USDT_SHELF_CAP [500e18]    (new in v3)
-//      lifetime quote one Agent ID may spend on one project's shelves; the
-//      Safe can change it later with setShelfCapPerAgent.
+//    BNB_SHELF_CAP [0.007e18]    USDT_SHELF_CAP [5e18]      (new in v3)
+//      lifetime quote one Agent ID may spend on one project's shelves, about
+//      5 USDT on both markets (BNB at ~$700); the Safe can change it later
+//      with setShelfCapPerAgent.
 //
 //  On chain 56 the registry, WBNB, USDT and fee recipient are asserted against
 //  the known mainnet addresses, and the owner Safe must be 2-of-3.
@@ -116,7 +117,7 @@ contract DeployV3 is Script {
             minAgentCap: 0.1e18,
             maxAgentCap: 0.1e18,
             triggerStep: 0.3e18,
-            shelfCap: 0.7e18
+            shelfCap: 0.007e18
         });
     }
 
@@ -128,7 +129,7 @@ contract DeployV3 is Script {
             minAgentCap: 5e18,
             maxAgentCap: 30_000e18,
             triggerStep: 180e18,
-            shelfCap: 500e18
+            shelfCap: 5e18
         });
     }
 
@@ -143,7 +144,7 @@ contract DeployV3 is Script {
     }
 
     function _deploy(uint256 pk, Env memory e, Params memory bp, Params memory up) internal {
-        require(bp.shelfCap >= bp.minBuy && up.shelfCap >= up.minBuy, "shelf cap below minBuy");
+        require(bp.shelfCap > 0 && up.shelfCap > 0, "zero shelf cap");
 
         vm.startBroadcast(pk);
         ToshBidBook book = new ToshBidBook(e.feeRecipient);

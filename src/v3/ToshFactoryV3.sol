@@ -122,6 +122,11 @@ contract ToshFactoryV3 is Ownable2Step, Pausable, ReentrancyGuard {
     /// @notice Most quote one Agent ID may spend on one project's shelves,
     ///         over the whole ladder. The owner can change it, and a change
     ///         applies to every project at once.
+    ///
+    /// @dev    Not floored at `minBuy`: that floor is a genesis minimum, and the
+    ///         shelf cap is meant to sit around 5 USDT, below the BNB market's
+    ///         `minBuy`. Since the hook's shelf gate reads spot alone, this cap
+    ///         is the bound on what one ID can take off the ladder.
     uint256 public shelfCapPerAgent;
 
     /// @notice Quote spent on `hook`'s shelves per Agent ID, keyed like the
@@ -279,7 +284,7 @@ contract ToshFactoryV3 is Ownable2Step, Pausable, ReentrancyGuard {
     }
 
     function _setShelfCapPerAgent(uint256 cap) private {
-        if (cap < minBuy || cap > ABS_MAX_CAP) revert InvalidShelfCap();
+        if (cap == 0 || cap > ABS_MAX_CAP) revert InvalidShelfCap();
         shelfCapPerAgent = cap;
         emit ShelfCapSet(cap);
     }

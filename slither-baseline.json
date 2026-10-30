@@ -5,11 +5,11 @@
   "_generated": "2026-10-30",
   "contracts": 117,
   "detectorsRun": 102,
-  "total": 186,
+  "total": 184,
   "byImpact": {
     "Informational": 58,
-    "Low": 60,
-    "Medium": 66,
+    "Low": 59,
+    "Medium": 65,
     "High": 2
   },
   "byCheck": {
@@ -17,7 +17,7 @@
     "calls-loop": 10,
     "cyclomatic-complexity": 6,
     "divide-before-multiply": 7,
-    "incorrect-equality": 9,
+    "incorrect-equality": 8,
     "low-level-calls": 4,
     "missing-inheritance": 12,
     "missing-zero-check": 2,
@@ -25,7 +25,7 @@
     "reentrancy-benign": 7,
     "reentrancy-events": 14,
     "reentrancy-no-eth": 4,
-    "timestamp": 27,
+    "timestamp": 26,
     "too-many-digits": 1,
     "tx-origin": 2,
     "uninitialized-local": 15,
@@ -325,13 +325,6 @@
       "impact": "Medium",
       "file": "src/ToshLaunchpadHook.sol",
       "scope": "ToshLaunchpadHook._sqrtPriceToNativePerToken",
-      "count": 1
-    },
-    {
-      "check": "incorrect-equality",
-      "impact": "Medium",
-      "file": "src/v3/ToshLaunchpadHookV3.sol",
-      "scope": "ToshLaunchpadHookV3._safeReferencePrice",
       "count": 1
     },
     {
@@ -815,13 +808,6 @@
       "impact": "Low",
       "file": "src/v3/ToshFactoryV3.sol",
       "scope": "ToshFactoryV3.releaseAbandonedName",
-      "count": 1
-    },
-    {
-      "check": "timestamp",
-      "impact": "Low",
-      "file": "src/v3/ToshLaunchpadHookV3.sol",
-      "scope": "ToshLaunchpadHookV3._safeReferencePrice",
       "count": 1
     },
     {

@@ -137,8 +137,8 @@ contract DeployV3Test is Test {
         {
             DeployV3Harness h = new DeployV3Harness();
             (DeployV3.Params memory bp, DeployV3.Params memory up) = h.defaults();
-            up.shelfCap = 1;
-            vm.expectRevert(bytes("shelf cap below minBuy"));
+            up.shelfCap = 0;
+            vm.expectRevert(bytes("zero shelf cap"));
             h.deployWith(PK, _e(), 97, bp, up);
         }
 
@@ -168,8 +168,8 @@ contract DeployV3Test is Test {
         assertEq(fs[1], u.factory);
         assertEq(book.feeRecipient(), feeRecipient);
 
-        _checkStack(b, address(wbnb), true, 0.01e18, 500e18, 0.1e18, 0.7e18);
-        _checkStack(u, address(usdt), false, 5e18, 300_000e18, 30_000e18, 500e18);
+        _checkStack(b, address(wbnb), true, 0.01e18, 500e18, 0.1e18, 0.007e18);
+        _checkStack(u, address(usdt), false, 5e18, 300_000e18, 30_000e18, 5e18);
         assertEq(ToshLadderTreasury(payable(b.treasury)).TRIGGER_STEP(), 0.3e18);
         assertEq(ToshLadderTreasury(payable(u.treasury)).TRIGGER_STEP(), 180e18);
         assertEq(ToshLaunchpadHookV3(payable(u.hookImplementation)).PIGGYBACK_TRIGGER_STEP(), 180e18);

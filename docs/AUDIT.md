@@ -10,7 +10,7 @@ firing without somebody deciding about it. Neither gate is advisory.
 | Baseline | `slither-baseline.json` | `aderyn-baseline.json` |
 | Gate | `scripts/checkSlitherFindings.mjs` | `scripts/checkAderynFindings.mjs` |
 | Scope | `src/` (`--filter-paths lib/\|test/\|script/`) | `src/` (inferred from `foundry.toml`) |
-| Current | 186 findings, 2H/66M/60L/58I | 284 findings, 55H/229L |
+| Current | 184 findings, 2H/65M/59L/58I | 284 findings, 55H/229L |
 | Runtime | ~15 s, plus a slower `pip install` | ~6 s, no compile of its own |
 
 The current counts include `src/v3/`: the token, hook, factory and lens now
@@ -148,9 +148,12 @@ rounded down toward negative infinity, the same correction Uniswap's
 
 ### Slither: v3 (deployed on `56`)
 
-83 of the 186 findings are in `src/v3/`. 57 repeat a v2 finding above,
+81 of the 184 findings are in `src/v3/`. 55 repeat a v2 finding above,
 including the second `weak-prng` High in the v3 copy of `_twapSqrtPriceX96`
-and the second `tx-origin` in `ToshTokenV3._update`. `ToshTokenV3` is
+and the second `tx-origin` in `ToshTokenV3._update`. The v3 shelf gate reads
+spot alone, so the v2 `incorrect-equality` and `timestamp` findings on
+`_safeReferencePrice` have no v3 copy; the per-Agent-ID `shelfCapPerAgent`
+on the factory bounds what one ID can mint instead. `ToshTokenV3` is
 `ToshToken` with `MAX_SUPPLY` raised a hundredfold to 2.1 billion; nothing
 else in it changed.
 `quoteMint` moved from the hook to `ToshHookLensV3`, so its `calls-loop`,

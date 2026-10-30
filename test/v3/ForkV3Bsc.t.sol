@@ -104,8 +104,8 @@ contract ForkV3BscTest is Test {
         if (!live) return;
         assertEq(ToshFactoryV3(b.factory).owner(), SAFE);
         assertEq(ToshFactoryV3(u.factory).owner(), SAFE);
-        assertEq(ToshFactoryV3(b.factory).shelfCapPerAgent(), 0.7e18);
-        assertEq(ToshFactoryV3(u.factory).shelfCapPerAgent(), 500e18);
+        assertEq(ToshFactoryV3(b.factory).shelfCapPerAgent(), 0.007e18);
+        assertEq(ToshFactoryV3(u.factory).shelfCapPerAgent(), 5e18);
         assertEq(address(ToshFactoryV3(b.factory).quoteAsset()), WBNB);
         assertEq(address(ToshFactoryV3(u.factory).quoteAsset()), USDT);
         assertEq(address(ToshAutoLp(b.autoLp).poolManager()), CL_POOL_MANAGER);
@@ -191,7 +191,7 @@ contract ForkV3BscTest is Test {
         vm.stopPrank();
         assertEq(token.balanceOf(buyer) - before, m);
         assertEq(f.shelfSpentByWallet(h, buyer), cost);
-        assertEq(f.shelfRemaining(h, buyer), 0.7e18 - cost);
+        assertEq(f.shelfRemaining(h, buyer), 0.007e18 - cost);
 
         ToshAutoLp a = ToshAutoLp(b.autoLp);
         assertGe(a.pendingQuote(h) + a.totalQuoteAdded(h), (cost * 8000) / 10_000, "80 % reached the AutoLp");

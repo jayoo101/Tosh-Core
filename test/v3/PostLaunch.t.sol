@@ -248,12 +248,16 @@ contract PostLaunchTestV3 is V2BaseV3 {
         assertEq(lens.quoteMint(address(hook), 0), 0);
     }
 
-    function test_shelf_pumpBeforeTheWindowCannotRaiseTheCeiling() public {
+    function test_shelf_spotOpensShelvesWithoutWaitingForTheTwap() public {
         uint256 before = hook.maxMintable();
         _swapBuy(hook, trader, 5e18);
+        assertEq(hook.maxMintable(), 0, "shut in the block the price moved");
         _nextBlock();
         assertEq(before, 0, "nothing at a flat open");
-        assertLe(hook.maxMintable(), hook.tierSize(), "capped at p0, shelf 0, until the TWAP matures");
+        assertGt(hook.maxMintable(), hook.tierSize(), "spot alone opens shelves past shelf 0 the next block");
+        (,,,, uint256 twap, uint256 ceiling,) = hook.tierStatus();
+        assertEq(twap, 0, "before any TWAP window has closed");
+        assertGt(ceiling, hook.p0(), "the ceiling is spot, not min(spot, p0)");
     }
 
     function test_shelf_dumpTightensTheGate() public {
