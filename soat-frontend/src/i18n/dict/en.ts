@@ -545,6 +545,9 @@ export const EN = {
   x: {
     navHome:           'Home',
     navMarket:         'Market',
+    navWhitepaper:     'Whitepaper (中文)',
+    whitepaperSource:  'Source and history on GitHub',
+    whitepaperUnavailable: 'The whitepaper could not be loaded. Refresh in a moment, or read it on GitHub.',
     navLaunching:      'Launching',
     navLaunched:       'Launched',
     sideNav:           'Sections',
@@ -604,6 +607,8 @@ export const EN = {
     metaLaunchpadDescription: 'GENESIS raises in progress on ToshX, the Agent ID fair launchpad on {chain}.',
     metaLaunchedTitle:        'Launched · ToshX',
     metaLaunchedDescription:  'ToshX projects whose pool is open on {chain}.',
+    metaWhitepaperTitle:      'Whitepaper · ToshX',
+    metaWhitepaperDescription: 'The ToshX whitepaper (Chinese): fair launch, the continuous ladder and permanently locked liquidity.',
 
     phaseGenesis:      'GENESIS',
     phasePending:      'Awaiting launch',

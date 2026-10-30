@@ -421,6 +421,9 @@ export const ZH_CN: PartialDictionary = {
   x: {
     navHome:           '首页',
     navMarket:         '市场',
+    navWhitepaper:     '白皮书',
+    whitepaperSource:  '在 GitHub 上查看源文件和修改记录',
+    whitepaperUnavailable: '白皮书暂时加载不出来，请稍后刷新，或者到 GitHub 查看。',
     navLaunching:      '发射中',
     navLaunched:       '已上线',
     sideNav:           '栏目',
@@ -480,6 +483,8 @@ export const ZH_CN: PartialDictionary = {
     metaLaunchpadDescription: 'ToshX 上进行中的 GENESIS 募集。ToshX 是 {chain} 上基于 Agent ID 的公平发射平台。',
     metaLaunchedTitle:        '已上线 · ToshX',
     metaLaunchedDescription:  '{chain} 上已经开盘的 ToshX 项目。',
+    metaWhitepaperTitle:      '白皮书 · ToshX',
+    metaWhitepaperDescription: 'ToshX 白皮书：公平发射、持续阶梯发行与永久锁池的规则。',
 
     phaseGenesis:      'GENESIS',
     phasePending:      '待开盘',
