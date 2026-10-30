@@ -384,10 +384,12 @@ jobs:
       # 291 -> 298: `app/lib/monitor`, the on-chain custody checks (+7).
       #
       # 298 -> 301: `app/lib/monitor`, the permanent shelf halt checks (+3).
+      #
+      # 301 -> 304: `lib/v2/config`, legacy factories and the spot shelf gate (+3).
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=301
+          floor=304
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the

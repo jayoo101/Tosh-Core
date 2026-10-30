@@ -8,6 +8,10 @@
 //   NEXT_PUBLIC_V2_LENS           ToshHookLens
 //   NEXT_PUBLIC_V2_FACTORY_BNB    ToshFactory quoted in WBNB
 //   NEXT_PUBLIC_V2_FACTORY_USDT   ToshFactory quoted in USDT
+//   NEXT_PUBLIC_V2_LEGACY_FACTORIES_BNB / _USDT
+//                                 comma-separated earlier factories of the
+//                                 same stack. Their projects stay listed and
+//                                 tradable; new launches go to the two above.
 //   NEXT_PUBLIC_V2_WBNB           WBNB on this chain
 //   NEXT_PUBLIC_V2_USDT           USDT on this chain
 //   NEXT_PUBLIC_V2_FROM_BLOCK     deploy block, where log scans start
@@ -39,16 +43,47 @@ export const V2_WBNB = addr(process.env.NEXT_PUBLIC_V2_WBNB)
 export const V2_USDT = addr(process.env.NEXT_PUBLIC_V2_USDT)
 export const V2_FROM_BLOCK = BigInt(process.env.NEXT_PUBLIC_V2_FROM_BLOCK?.trim() || '0')
 
+function addrList(raw: string | undefined): Address[] {
+  return (raw ?? '').split(',').map(s => addr(s)).filter((a): a is Address => a !== undefined)
+}
+
+export const V2_LEGACY_FACTORIES_BNB = addrList(process.env.NEXT_PUBLIC_V2_LEGACY_FACTORIES_BNB)
+export const V2_LEGACY_FACTORIES_USDT = addrList(process.env.NEXT_PUBLIC_V2_LEGACY_FACTORIES_USDT)
+
 export const V2_ENABLED = V2_BIDBOOK !== undefined && V2_LENS !== undefined
 
-export const V2_FACTORIES: readonly Address[] = [V2_FACTORY_BNB, V2_FACTORY_USDT].filter(
-  (a): a is Address => a !== undefined,
-)
+/** Every factory whose projects are listed: the current pair, then the legacy ones. */
+export const V2_FACTORIES: readonly Address[] = [
+  ...new Set(
+    [V2_FACTORY_BNB, V2_FACTORY_USDT, ...V2_LEGACY_FACTORIES_BNB, ...V2_LEGACY_FACTORIES_USDT].filter(
+      (a): a is Address => a !== undefined,
+    ),
+  ),
+]
+
+const has = (list: readonly (Address | undefined)[], a: string) => {
+  const l = a.toLowerCase()
+  return list.some(f => f !== undefined && f.toLowerCase() === l)
+}
 
 export function isV2Factory(a: string | null | undefined): boolean {
-  if (!a) return false
-  const l = a.toLowerCase()
-  return V2_FACTORIES.some(f => f.toLowerCase() === l)
+  return !!a && has(V2_FACTORIES, a)
+}
+
+/** A listed factory that no longer takes launches. */
+export function isLegacyFactory(a: string | null | undefined): boolean {
+  return !!a && has([...V2_LEGACY_FACTORIES_BNB, ...V2_LEGACY_FACTORIES_USDT], a)
+}
+
+/**
+ * Whether `factory`'s hooks gate shelves on spot alone. The v3 factories that
+ * were live before the spot gate became legacy when it shipped, so on a v3
+ * build only the current pair, and only once a legacy pair is configured,
+ * runs the new rule; everything else still reads `min(spot, 30m TWAP)`.
+ */
+export function hasSpotShelfGate(factory: string | null | undefined): boolean {
+  if (!factory || !IS_V3 || V2_LEGACY_FACTORIES_BNB.length + V2_LEGACY_FACTORIES_USDT.length === 0) return false
+  return has([V2_FACTORY_BNB, V2_FACTORY_USDT], factory)
 }
 
 export interface V2Quote {
@@ -71,7 +106,7 @@ export function v2Quote(asset: string, acceptsNative: boolean): V2Quote {
 
 /** A v2 factory's quote in the `QuoteConfig` shape the directory cards format with. */
 export function v2QuoteConfig(factory: string): { asset: Address; decimals: number; symbol: string; wrapsNative: boolean } {
-  const native = V2_FACTORY_BNB !== undefined && factory.toLowerCase() === V2_FACTORY_BNB.toLowerCase()
+  const native = has([V2_FACTORY_BNB, ...V2_LEGACY_FACTORIES_BNB], factory)
   const asset = (native ? V2_WBNB : V2_USDT) ?? ('0x0000000000000000000000000000000000000000' as Address)
   return { asset, decimals: 18, symbol: native ? NATIVE_SYMBOL : 'USDT', wrapsNative: native }
 }

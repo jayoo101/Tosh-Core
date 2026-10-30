@@ -576,6 +576,7 @@ export const ZH_CN: PartialDictionary = {
     ladderTitle:       '价格阶梯',
     ladderBody:        '买入先填满当前档位，填满后自动开放下一档。',
     ladderCap:         '100% · min(现价，30 分钟 TWAP)',
+    ladderCapSpot:     '100% · 现价 · 每个 ID 约 5U',
     ladderStep:        '第 #{n} 档',
     ladderPrice:       '档位价格',
     ladderLeft:        '本档剩余',

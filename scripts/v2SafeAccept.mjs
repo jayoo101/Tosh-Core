@@ -3,7 +3,10 @@
  * Safe Transaction Builder batch for the step `DeployV2.s.sol` leaves to the
  * Safe: `acceptOwnership()` on both factories and both treasuries.
  *
- *   node scripts/v2SafeAccept.mjs [chainId=56] [--v3] [--handoff]
+ *   node scripts/v2SafeAccept.mjs [chainId=56] [--v3 | --tag=v3.1] [--handoff]
+ *
+ * `--tag=<t>` reads `deployments/<t>-<chainId>.json` (the `DEPLOY_TAG` the
+ * deploy ran with) and writes `safe-<t>-accept-<chainId>.json`.
  *
  * Reads `deployments/v2-<chainId>.json` and writes `safe-v2-accept-<chainId>.json`
  * (with `--v3`: `deployments/v3-<chainId>.json` from `DeployV3.s.sol`, written
@@ -26,7 +29,9 @@ const EXECUTE = '0x09c5eabe' // execute(bytes)
 
 const args = process.argv.slice(2)
 const handoff = args.includes('--handoff')
-const ver = args.includes('--v3') ? 'v3' : 'v2'
+const tagArg = args.find(a => a.startsWith('--tag='))?.slice('--tag='.length)
+const ver = tagArg || (args.includes('--v3') ? 'v3' : 'v2')
+if (!/^v[0-9.]+$/.test(ver)) throw new Error(`--tag: "${ver}" is not a deployment tag like v3.1`)
 const chainId = Number(args.find(a => /^\d+$/.test(a)) ?? 56)
 
 const dep = JSON.parse(readFileSync(`deployments/${ver}-${chainId}.json`, 'utf8'))
