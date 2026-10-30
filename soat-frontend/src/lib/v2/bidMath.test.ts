@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { depth, escrowFor, fillFloor, planSell, quoteFill, withSlippage, type LiveBid } from './bidMath'
+import { depth, escrowFor, fillFloor, planSell, qtyForBudget, quoteFill, withSlippage, type LiveBid } from './bidMath'
 
 const E18 = 10n ** 18n
 const bid = (id: bigint, price: bigint, qty: bigint, filled = 0n): LiveBid => ({
@@ -11,6 +11,19 @@ describe('bidMath', () => {
     // price 3 wei per token, qty 1e18 + 1 -> gross ceil(3e18+3 / 1e18) = 4
     expect(escrowFor(3n, E18 + 1n)).toBe(4n + 1n)
     expect(escrowFor(2n * 10n ** 13n, 10_000n * E18)).toBe(2n * 10n ** 17n + 2n * 10n ** 15n)
+  })
+
+  it('qtyForBudget buys the most whole tokens the budget covers', () => {
+    // 2e13 per token: 10,000 tokens escrow exactly 0.202
+    expect(qtyForBudget(2n * 10n ** 13n, 202n * 10n ** 15n)).toBe(10_000n * E18)
+    expect(qtyForBudget(2n * 10n ** 13n, 202n * 10n ** 15n - 1n)).toBe(9_999n * E18)
+    const price = 1_450_000_000_000n
+    const budget = 10n ** 17n
+    const q = qtyForBudget(price, budget)
+    expect(escrowFor(price, q)).toBeLessThanOrEqual(budget)
+    expect(escrowFor(price, q + E18)).toBeGreaterThan(budget)
+    expect(qtyForBudget(0n, budget)).toBe(0n)
+    expect(qtyForBudget(price, 0n)).toBe(0n)
   })
 
   it('partial fills sum to the full escrow', () => {

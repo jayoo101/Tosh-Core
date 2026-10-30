@@ -12,7 +12,7 @@ import {
 import { fill, useT } from '@/i18n'
 import { TARGET_CHAIN_ID } from '@/lib/chain'
 import { V2_BIDBOOK_ABI } from '@/lib/v2/abis'
-import { depth, escrowFor, fillFloor, planSell, withSlippage, grossAt, type LiveBid } from '@/lib/v2/bidMath'
+import { depth, escrowFor, fillFloor, planSell, qtyForBudget, withSlippage, grossAt, type LiveBid } from '@/lib/v2/bidMath'
 import { V2, V2_BIDBOOK, v2Quote, type V2Quote } from '@/lib/v2/config'
 import { useBids, useGenesisState } from '@/lib/v2/useV2'
 import { WRAP_VARS } from '@/components/ProjectTerminal/useWrapNative'
@@ -52,9 +52,21 @@ export function BidMarket({ hook, symbol, embedded = false }: {
   // some other wallet connected must still see, and cancel, the Agent's.
   const owners = [connected, agent].filter((a): a is Address => !!a).map(a => a.toLowerCase())
   const mine = book.bids.filter(b => owners.includes(b.bidder.toLowerCase()) && b.escrow > 0n)
+  const best = book.open.reduce((m, b) => (b.price > m ? b.price : m), 0n)
+  const placePanel = (
+    <PlacePanel hook={hook} symbol={symbol} quote={quote} price={s.currentPrice} best={best} minBid={s.minBuy} onDone={book.refetch} />
+  )
 
   if (embedded) {
-    const best = book.open.reduce((m, b) => (b.price > m ? b.price : m), 0n)
+    const myBids = (
+      <MyBids
+        bids={mine}
+        quote={quote}
+        onDone={book.refetch}
+        empty={address ? t.myBidsNone : t.myBidsConnect}
+        footer={<AgentBidsLookup known={!!agent} />}
+      />
+    )
     const escrowed = book.open.reduce((sum, b) => sum + b.escrow, 0n)
     const stats = [
       [tx.mktBest, best > 0n ? `${fmtSig(best, 18, 6)} ${quote.symbol}` : '—'],
@@ -101,19 +113,14 @@ export function BidMarket({ hook, symbol, embedded = false }: {
                 : (
                   <>
                     <p className="rounded-input bg-brand/10 px-3 py-2 text-note text-brand">{tx.mktBuyOnlyWarn}</p>
-                    <PlacePanel hook={hook} quote={quote} price={s.currentPrice} minBid={s.minBuy} onDone={book.refetch} />
+                    {placePanel}
                   </>
                 )}
+              {myBids}
             </div>
           )}
         </div>
-        <MyBids
-          bids={mine}
-          quote={quote}
-          onDone={book.refetch}
-          empty={address ? t.myBidsNone : t.myBidsConnect}
-          footer={<AgentBidsLookup known={!!agent} />}
-        />
+        {s.launched && myBids}
         <RecentTrades hook={hook} quote={quote} />
       </div>
     )
@@ -132,11 +139,12 @@ export function BidMarket({ hook, symbol, embedded = false }: {
         {!s.launched && (
           <aside className="flex flex-col gap-6">
             <SellPanel hook={hook} token={s.token} symbol={symbol} quote={quote} bids={book.open} price={s.currentPrice} onDone={book.refetch} />
-            <PlacePanel hook={hook} quote={quote} price={s.currentPrice} minBid={s.minBuy} onDone={book.refetch} />
+            {placePanel}
+            <MyBids bids={mine} quote={quote} onDone={book.refetch} />
           </aside>
         )}
       </div>
-      <MyBids bids={mine} quote={quote} onDone={book.refetch} />
+      {s.launched && <MyBids bids={mine} quote={quote} onDone={book.refetch} />}
       <RecentTrades hook={hook} quote={quote} />
     </div>
   )
@@ -248,19 +256,20 @@ function SellPanel({ hook, token, symbol, quote, bids, price, onDone }: {
   )
 }
 
-function PlacePanel({ hook, quote, price, minBid, onDone }: {
-  hook: Address; quote: V2Quote; price: bigint; minBid: bigint; onDone: () => void
+function PlacePanel({ hook, symbol, quote, price, best, minBid, onDone }: {
+  hook: Address; symbol: string; quote: V2Quote; price: bigint; best: bigint; minBid: bigint; onDone: () => void
 }) {
   const t = useT().v2
   const tw = useT().wrap
   const [rawPrice, setRawPrice] = useState('')
-  const [rawQty, setRawQty] = useState('')
+  const [rawAmount, setRawAmount] = useState('')
   const bidPrice = parseAmount(rawPrice) ?? 0n
-  const qty = parseAmount(rawQty) ?? 0n
-  const escrow = bidPrice > 0n && qty > 0n ? escrowFor(bidPrice, qty) : 0n
+  const budget = parseAmount(rawAmount) ?? 0n
+  const qty = qtyForBudget(bidPrice, budget)
+  const escrow = qty > 0n ? escrowFor(bidPrice, qty) : 0n
   const approval = useQuoteApproval(V2_BIDBOOK, escrow, quote.asset)
   const wrap = useWrapShortfall(quote, escrow, approval.refetch)
-  const tx = useTxAction({ action: t.placeAction, onConfirmed: () => { setRawQty(''); approval.refetch(); wrap.refetch(); onDone() } })
+  const tx = useTxAction({ action: t.placeAction, onConfirmed: () => { setRawAmount(''); approval.refetch(); wrap.refetch(); onDone() } })
 
   const gate = useActionGate({
     action: t.placeBtn,
@@ -291,11 +300,18 @@ function PlacePanel({ hook, quote, price, minBid, onDone }: {
         onValueChange={setRawPrice}
         inputMode="decimal"
         placeholder={formatUnits(price, 18)}
-        hint={fill(t.placeMin, { p: fmtSig(price, 18, 6), quote: quote.symbol })}
-        affix={<FieldAffix label="min" onClick={() => setRawPrice(formatUnits(price, 18))} />}
+        hint={`${best > 0n ? fill(t.placeBestHint, { p: fmtSig(best, 18, 6), quote: quote.symbol }) : ''}${fill(t.placeMin, { p: fmtSig(price, 18, 6), quote: quote.symbol })}`}
+        affix={<FieldAffix label={t.placeBest} onClick={() => setRawPrice(formatUnits(best > price ? best : price, 18))} />}
       />
-      <Field label={t.placeQty} value={rawQty} onValueChange={setRawQty} inputMode="decimal" placeholder="0" />
-      {escrow > 0n && <Readout label={t.payLabel} value={fill(t.placeEscrow, { amount: fmtSig(escrow), quote: quote.symbol })} />}
+      <Field
+        label={fill(t.placeAmount, { quote: quote.symbol })}
+        value={rawAmount}
+        onValueChange={setRawAmount}
+        inputMode="decimal"
+        placeholder="0"
+        hint={escrow > 0n ? fill(t.placeEscrow, { amount: fmtSig(escrow), quote: quote.symbol }) : undefined}
+      />
+      {qty > 0n && <Readout label={t.placeQty} value={`${fmtSig(qty)} ${symbol}`} />}
       <WalletAction gate={gate} open />
       <AgentModeSheet
         title={`${t.agentNoteBid} ${fmtSig(qty)} @ ${fmtSig(bidPrice, 18, 6)} ${quote.symbol}`}

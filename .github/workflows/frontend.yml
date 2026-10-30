@@ -378,10 +378,12 @@ jobs:
       # 279 -> 290: address checksum repair in `config`/`getProject` and the
       # stale-build reload guard (+5), `isContractCode(null)` (+1), and
       # `/api/v2/volume` paging, exact sums, stale index and a failing page (+5).
+      #
+      # 290 -> 291: `qtyForBudget`, the bid form's amount-to-tokens conversion.
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=290
+          floor=291
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the

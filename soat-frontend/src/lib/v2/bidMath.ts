@@ -29,6 +29,15 @@ export function escrowFor(price: bigint, qty: bigint): bigint {
   return g + feeOf(g)
 }
 
+/** Most whole tokens a bid at `price` buys for at most `budget` quote, fee included. */
+export function qtyForBudget(price: bigint, budget: bigint): bigint {
+  if (price === 0n || budget === 0n) return 0n
+  let qty = (budget * V2.BPS * V2.ONE) / (price * (V2.BPS + V2.FEE_BPS))
+  qty -= qty % V2.ONE
+  while (qty > 0n && escrowFor(price, qty) > budget) qty -= V2.ONE
+  return qty
+}
+
 export interface FillQuote {
   q: bigint
   gross: bigint
