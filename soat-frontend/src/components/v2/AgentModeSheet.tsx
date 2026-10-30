@@ -124,7 +124,7 @@ export function AgentModeSheet({ title, summary, steps, template, pending, notes
   const flash = (which: 'text' | 'data') => { setCopied(which); setTimeout(() => setCopied(null), 1500) }
 
   if (!open) {
-    return <Button size="sm" variant="quiet" label={t.agentOpen} onClick={() => setOpen(true)} />
+    return <Button size="sm" variant="primary" label={t.agentOpen} onClick={() => setOpen(true)} />
   }
 
   return (
