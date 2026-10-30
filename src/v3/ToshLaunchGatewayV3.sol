@@ -132,7 +132,7 @@ contract ToshLaunchGatewayV3 {
                 revert(add(result, 0x20), mload(result))
             }
         }
-        emit Executed(bytes4(data));
+        emit Executed(data.length < 4 ? bytes4(0) : bytes4(data[:4]));
     }
 
     /// @notice Stop `hook`'s shelf minting for good. Safe only, irreversible.
