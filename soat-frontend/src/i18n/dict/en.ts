@@ -700,6 +700,7 @@ export const EN = {
     ladderTitle:       'Price ladder',
     ladderBody:        'Buys fill the current step. Once it is full, the next step opens.',
     ladderCap:         '100% · min(spot, 30m TWAP)',
+    ladderCapSpot:     '100% · spot · ~5U per ID',
     ladderStep:        'Step #{n}',
     ladderPrice:       'Step price',
     ladderLeft:        'Left in step',

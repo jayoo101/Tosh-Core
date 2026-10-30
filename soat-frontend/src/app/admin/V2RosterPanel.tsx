@@ -23,7 +23,7 @@ import { fmtSig } from '@/components/v2/fmt'
 import { fill, useT } from '@/i18n'
 import { NATIVE_SYMBOL, TARGET_CHAIN_ID } from '@/lib/chain'
 import { V2_FACTORY_ABI, V2_HOOK_ABI, V2_TREASURY_ABI } from '@/lib/v2/abis'
-import { V2_FACTORY_BNB, V2_FACTORY_USDT } from '@/lib/v2/config'
+import { V2_FACTORY_BNB, V2_FACTORY_USDT, V2_LEGACY_FACTORIES_BNB, V2_LEGACY_FACTORIES_USDT } from '@/lib/v2/config'
 import { AddressLink, ConfirmDialog, Readout, ScopeNote, Section, StatusBadge, labelCls } from './shared'
 import { downloadJson, rosterCandidates, safeBatch, twapReady } from './v2Roster'
 
@@ -38,6 +38,8 @@ export function V2RosterPanel() {
   const stacks = [
     V2_FACTORY_BNB && { factory: V2_FACTORY_BNB, quote: NATIVE_SYMBOL },
     V2_FACTORY_USDT && { factory: V2_FACTORY_USDT, quote: 'USDT' },
+    ...V2_LEGACY_FACTORIES_BNB.map(factory => ({ factory, quote: NATIVE_SYMBOL })),
+    ...V2_LEGACY_FACTORIES_USDT.map(factory => ({ factory, quote: 'USDT' })),
   ].filter((s): s is { factory: Address; quote: string } => !!s)
 
   if (stacks.length === 0) {

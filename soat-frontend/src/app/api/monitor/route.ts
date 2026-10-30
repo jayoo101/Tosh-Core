@@ -27,7 +27,7 @@ import { HALT_GATEWAY_ABI, gatewaysToRenew, permanentHalts, runChecks, type Aler
 import { serverPublicClient, serverRpcUrl } from '@/app/lib/serverRpc'
 import { targetChain } from '@/lib/chain'
 import { indexStaleness } from '@/app/lib/v2Indexer'
-import { V2_BIDBOOK, V2_FACTORY_BNB, V2_FACTORY_USDT } from '@/lib/v2/config'
+import { V2_BIDBOOK, V2_FACTORIES } from '@/lib/v2/config'
 import { reportError } from '@/lib/observability'
 
 export const maxDuration = 60
@@ -80,7 +80,7 @@ async function handle(req: NextRequest): Promise<NextResponse> {
   const client = serverPublicClient()
   const read: Reader = (address, abi, functionName, args) =>
     client.readContract({ address, abi, functionName, args } as never) as never
-  const factories = [V2_FACTORY_BNB, V2_FACTORY_USDT].filter((a): a is Address => !!a)
+  const factories = [...V2_FACTORIES]
 
   const renewed = await renewHalts(read, factories).catch((err: unknown) => {
     reportError(err, { surface: 'api-route', extra: { route: '/api/monitor', step: 'renewAll' } })

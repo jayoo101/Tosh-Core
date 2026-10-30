@@ -58,6 +58,10 @@ interface ISafeOwnersV3 {
 //
 //    forge script script/DeployV3.s.sol --rpc-url $RPC --broadcast --verify
 //
+//  Addresses are written to `deployments/<DEPLOY_TAG>-<chainId>.json`,
+//  DEPLOY_TAG defaulting to `v3`. Set it (e.g. `v3.1`) for any deployment
+//  after the first, or the live stack's record is overwritten.
+//
 //  After broadcast the Safe must `acceptOwnership()` on both factories and both
 //  treasuries, then (optionally) hand each factory to its gateway.
 //  `node scripts/v2SafeAccept.mjs <chainId> --v3 [--handoff]` writes both steps
@@ -285,6 +289,7 @@ contract DeployV3 is Script {
         vm.serializeAddress(k, "usdtAutoLp", usdt.autoLp);
         vm.serializeAddress(k, "usdtHookImplementation", usdt.hookImplementation);
         string memory json = vm.serializeAddress(k, "usdtGateway", usdt.gateway);
-        vm.writeJson(json, string.concat("./deployments/v3-", vm.toString(block.chainid), ".json"));
+        string memory tag = vm.envOr("DEPLOY_TAG", string("v3"));
+        vm.writeJson(json, string.concat("./deployments/", tag, "-", vm.toString(block.chainid), ".json"));
     }
 }

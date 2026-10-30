@@ -21,7 +21,7 @@ import { ProjectTabs } from '@/components/x/ProjectTabs'
 import { fill, useT } from '@/i18n'
 import { TARGET_CHAIN_ID } from '@/lib/chain'
 import { V2_HOOK_ABI, V2_LENS_ABI } from '@/lib/v2/abis'
-import { IS_V3, V2, V2_LENS, v2Quote, type V2Quote } from '@/lib/v2/config'
+import { IS_V3, V2, V2_LENS, hasSpotShelfGate, v2Quote, type V2Quote } from '@/lib/v2/config'
 import { useAccountState, useGenesisState, useShelfQuote, useShelfRemaining } from '@/lib/v2/useV2'
 import { BidMarket } from './BidMarket'
 import { fmtSig, fmtTime, parseAmount } from './fmt'
@@ -225,6 +225,8 @@ function Rules({ s, quote }: { s: State; quote: V2Quote }) {
 
 const LADDER_WINDOW = 6
 
+const HOOK_FACTORY_ABI = parseAbi(['function factory() view returns (address)'])
+
 function ShelfLadder({ hook, quote }: { hook: Address; quote: V2Quote }) {
   const tx = useT().x
   const { data: st } = useReadContract({
@@ -236,6 +238,9 @@ function ShelfLadder({ hook, quote }: { hook: Address; quote: V2Quote }) {
   const { data: tiers } = useReadContract({
     address: V2_LENS, abi: V2_LENS_ABI, functionName: 'getTiers', args: [hook, start, BigInt(LADDER_WINDOW)],
     chainId: TARGET_CHAIN_ID, query: { enabled: !!st && !!V2_LENS, refetchInterval: 8_000 },
+  })
+  const { data: factory } = useReadContract({
+    address: hook, abi: HOOK_FACTORY_ABI, functionName: 'factory', chainId: TARGET_CHAIN_ID,
   })
   const current = tiers?.[Number(idx - start)]
   const filled = current ? pct(current.soldAmount, current.totalAmount) : 0
@@ -249,7 +254,7 @@ function ShelfLadder({ hook, quote }: { hook: Address; quote: V2Quote }) {
           <p className="text-pretty text-title text-text-primary">{tx.ladderBody}</p>
         </div>
         <span className="shrink-0 rounded-input border border-border-subtle px-2 py-1 font-mono text-note text-text-tertiary">
-          {tx.ladderCap}
+          {hasSpotShelfGate(factory) ? tx.ladderCapSpot : tx.ladderCap}
         </span>
       </div>
       <div className="flex flex-col gap-3">
