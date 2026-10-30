@@ -47,6 +47,11 @@ export function V2Terminal({ hook, symbol, header }: {
   const tx = useT().x
   const { data: s, refetch } = useGenesisState(hook)
   const now = useNow()
+  const { address } = useAccount()
+  const agent = useAgentAddress()
+  const { data: platform } = useReadContract({
+    address: hook, abi: V2_HOOK_ABI, functionName: 'platformFeeRecipient', chainId: TARGET_CHAIN_ID,
+  })
   if (!s) {
     return (
       <div className="flex flex-col gap-6">
@@ -60,13 +65,16 @@ export function V2Terminal({ hook, symbol, header }: {
   const genesisOpen = !s.launched && s.soldOutAt === 0n && BigInt(now) < s.genesisDeadline
   const phase = v2Phase(s, now)
   const p = toNum(s.basePrice)
+  // The controller also holds the Circuit NFT, so it is the revenue vault's holder too.
+  const insiders = [s.projectController, s.projectFund, platform].filter(Boolean).map(a => a!.toLowerCase())
+  const isInsider = [address, agent].some(a => !!a && insiders.includes(a.toLowerCase()))
 
   // After launch the book only takes cancellations, and those live on /market.
   const tabs = [
     ...(s.launched ? [] : [{ id: 'market', label: tx.tabMarket, content: <BidMarket hook={hook} symbol={symbol} embedded /> }]),
     { id: 'tokenomics', label: tx.tabTokenomics, content: <Tokenomics s={s} quote={quote} /> },
     { id: 'rules', label: tx.tabRules, content: <Rules s={s} quote={quote} /> },
-    {
+    ...(!isInsider ? [] : [{
       id: 'fund', label: tx.tabFund,
       content: (
         <div className="flex flex-col gap-6">
@@ -74,7 +82,7 @@ export function V2Terminal({ hook, symbol, header }: {
           <RevenueVaultPanel hook={hook} quote={quote} />
         </div>
       ),
-    },
+    }]),
   ]
 
   return (
