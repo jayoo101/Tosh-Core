@@ -11,6 +11,8 @@ import { IS_V3, V2_BIDBOOK, V2_ENABLED, V2_FROM_BLOCK, V2_LENS } from './config'
 import type { LiveBid } from './bidMath'
 
 const LOG_CHUNK = 5_000n
+/** ~15 min of BSC blocks: past the index's 10-minute staleness limit, inside one log query. */
+const RECENT_TAIL = 2_000n
 
 /** `true` when a v2 factory registered `hook`. Ask BidBook, not the hook: a
  *  spoofed contract can return our factory from `factory()` and harvest an
@@ -101,11 +103,29 @@ function useBidIds(hook: Address | undefined, bidder?: Address) {
       const qs = new URLSearchParams()
       if (hook) qs.set('hook', hook)
       if (bidder) qs.set('bidder', bidder)
+      const scan = (fromBlock: bigint, toBlock: bigint) => client!.getContractEvents({
+        address: V2_BIDBOOK!,
+        abi: V2_BIDBOOK_ABI,
+        eventName: 'BidPlaced',
+        args: { ...(hook ? { hook } : {}), ...(bidder ? { bidder } : {}) },
+        fromBlock,
+        toBlock,
+      })
       try {
         const r = await fetch(`/api/v2/bids?${qs}`, { cache: 'no-store' })
         if (r.ok) {
           const j = (await r.json()) as { bids: { bid_id: string }[] }
-          return j.bids.map(b => BigInt(b.bid_id))
+          const ids = j.bids.map(b => BigInt(b.bid_id))
+          // The index may trail the chain by up to its staleness limit, so a
+          // bid placed a moment ago is not in it yet. Read the tail directly.
+          try {
+            const latest = await client!.getBlockNumber()
+            const seen = new Set(ids)
+            for (const l of await scan(latest > RECENT_TAIL ? latest - RECENT_TAIL : 0n, latest)) {
+              if (l.args.bidId !== undefined && !seen.has(l.args.bidId)) { seen.add(l.args.bidId); ids.push(l.args.bidId) }
+            }
+          } catch { /* the index answer stands; the next poll retries the tail */ }
+          return ids
         }
       } catch {
         // fall through to the chain
@@ -115,15 +135,7 @@ function useBidIds(hook: Address | undefined, bidder?: Address) {
       const ids: bigint[] = []
       for (let from = start; from <= latest; from += LOG_CHUNK) {
         const to = from + LOG_CHUNK - 1n > latest ? latest : from + LOG_CHUNK - 1n
-        const logs = await client!.getContractEvents({
-          address: V2_BIDBOOK!,
-          abi: V2_BIDBOOK_ABI,
-          eventName: 'BidPlaced',
-          args: { ...(hook ? { hook } : {}), ...(bidder ? { bidder } : {}) },
-          fromBlock: from,
-          toBlock: to,
-        })
-        for (const l of logs) if (l.args.bidId !== undefined) ids.push(l.args.bidId)
+        for (const l of await scan(from, to)) if (l.args.bidId !== undefined) ids.push(l.args.bidId)
       }
       return ids
     },
