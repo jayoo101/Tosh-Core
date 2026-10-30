@@ -134,7 +134,10 @@ contract ShelfGateTestV3 is V2BaseV3 {
 
         vm.prank(admin);
         vm.expectRevert(ToshFactoryV3.InvalidShelfCap.selector);
-        factory.setShelfCapPerAgent(MIN_BUY - 1);
+        factory.setShelfCapPerAgent(0);
+
+        _setCap(MIN_BUY - 1);
+        assertEq(factory.shelfCapPerAgent(), MIN_BUY - 1, "not floored at the genesis minBuy");
 
         vm.prank(admin);
         vm.expectRevert(ToshFactoryV3.InvalidShelfCap.selector);

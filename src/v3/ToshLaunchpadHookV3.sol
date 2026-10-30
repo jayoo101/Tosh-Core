@@ -490,9 +490,8 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///
     ///             shelf i unlocks  ⟺  REF ≥ p0 · STEP^i
     ///
-    ///         where REF is `min(spot, TWAP)` once a full `TWAP_WINDOW` has
-    ///         elapsed, and `min(spot, p0)` until then — a stub TWAP averaged
-    ///         over a handful of seconds is not a TWAP.
+    ///         where REF is spot (the v3 gate dropped the TWAP leg; see
+    ///         `_safeReferencePrice`).
     ///
     ///         So the ladder tracks the market one-for-one and charges a flat
     ///         5 % for minting fresh supply instead of buying it on the open
@@ -1781,17 +1780,17 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     ///        observed by the price gate before it unwinds. A dust swap that
     ///        leaves the price where it was no longer shuts the block.
     ///
-    ///     2. min(SPOT, SLOW).  Once a full `TWAP_WINDOW` has elapsed the
-    ///        slow leg is the rolling geometric TWAP, so pumping spot cannot
-    ///        lift the reference and dumping spot only tightens it.  Until
-    ///        then the slow leg is `p0`: a 2-second "TWAP" is spot in all but
-    ///        name, and falling back to it would let a two-block pump mint
-    ///        against a fabricated ceiling.
+    ///     2. SPOT REFERENCE.  The reference is the pool's spot price.  The
+    ///        30-minute TWAP leg was removed: it held shelves shut for up to
+    ///        an hour after the market reached them.  A pump that lifts spot
+    ///        has to land a block earlier than the mint (guard 1), and the
+    ///        factory's per-Agent-ID `shelfCapPerAgent` bounds what one ID can
+    ///        take off the ladder however the price is moved.
     ///
     ///     3. PAR CEILING.  The shelf must cost no more than that
-    ///        reference.  A shelf therefore only unlocks after the secondary
-    ///        market has genuinely, durably risen to meet it — the ladder is
-    ///        pulled up by real demand rather than pushed up by the issuer.
+    ///        reference.  A shelf therefore only unlocks once the secondary
+    ///        market trades at its price — the ladder is pulled up by demand
+    ///        rather than pushed up by the issuer.
     ///
     /// ── Why the order may span shelves ──────────────────────────────────────
     ///
@@ -2591,17 +2590,15 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
         lastTick = tickNow;
     }
 
-    /// @dev Anti-spike reference.  Once a full `TWAP_WINDOW` has elapsed this
-    ///      is `min(spot, TWAP)`.  Until then the averaging window is either
-    ///      empty (`span == 0` → TWAP returns 0) or a few-second stub a
-    ///      two-block pump can fabricate, so the slow leg is `p0` instead:
-    ///      `min(spot, p0)`.  Dumping below `p0` still tightens the gate.
+    /// @dev Shelf gate reference: spot alone.  The TWAP leg is gone, so a
+    ///      shelf unlocks as soon as the market trades at its price instead of
+    ///      after the market has HELD there for a window.  What bounds a
+    ///      pump-mint-dump now is the same-block lockout (the pump and the mint
+    ///      cannot share a block) and the factory's per-Agent-ID
+    ///      `shelfCapPerAgent`, which caps what any one ID can mint at all.
+    ///      The TWAP is still kept for `ToshAutoLp` and the treasury.
     function _safeReferencePrice() internal view returns (uint256) {
-        uint256 spot = _getSpotPrice();
-        uint32 span = uint32(block.timestamp) - _prevCheckpointTs;
-        uint256 slow = span < TWAP_WINDOW ? p0 : _getTWAPPrice();
-        if (slow == 0) slow = p0;
-        return spot < slow ? spot : slow;
+        return _getSpotPrice();
     }
 
     /// @dev Live pool price in ETH-wei per whole token.
@@ -2785,8 +2782,7 @@ contract ToshLaunchpadHookV3 is ICLHooks, ILockCallback, ReentrancyGuard {
     /// @return remaining   Tokens left on it.
     /// @return spotPrice   Live pool price.
     /// @return twapPrice   Rolling geometric TWAP (0 before the first window).
-    /// @return ceiling     The anti-spike reference (`min(spot, TWAP)`
-    ///                     once the window is mature, `min(spot, p0)` until then).
+    /// @return ceiling     The shelf gate reference: spot.
     /// @return unlocked    Whether the shelf currently passes the price gate.
     function tierStatus()
         external
