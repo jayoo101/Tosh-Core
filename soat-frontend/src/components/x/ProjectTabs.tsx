@@ -18,7 +18,9 @@ export function ProjectTabs({ tabs }: { tabs: Tab[] }) {
   const hash = useSyncExternalStore(subscribeHash, () => window.location.hash.slice(1), () => '')
   const [picked, setPicked] = useState<{ id: string; hash: string } | null>(null)
   const fromHash = tabs.some(t => t.id === hash) ? hash : null
-  const active = picked && picked.hash === hash ? picked.id : fromHash ?? picked?.id ?? tabs[0]?.id
+  // A tab can drop out from under the pick, e.g. the fund tab on disconnect.
+  const kept = picked && tabs.some(t => t.id === picked.id) ? picked : null
+  const active = kept && kept.hash === hash ? kept.id : fromHash ?? kept?.id ?? tabs[0]?.id
 
   return (
     <section
