@@ -14,8 +14,10 @@ export function Portfolio() {
   const { address: connected } = useAccount()
   const agent = useAgentAddress()
   const address = connected ?? agent
-  const book = useBids(undefined, address)
-  const mine = book.bids.filter(b => b.escrow > 0n)
+  const own = useBids(undefined, connected)
+  const agentBook = useBids(undefined, agent && agent.toLowerCase() !== connected?.toLowerCase() ? agent : undefined)
+  const book = { isLoading: own.isLoading || agentBook.isLoading, refetch: () => { own.refetch(); agentBook.refetch() } }
+  const mine = [...own.bids, ...agentBook.bids].filter(b => b.escrow > 0n)
 
   let body
   if (!V2_ENABLED) body = <Card><p className="text-note text-text-secondary">{t.notDeployed}</p></Card>
