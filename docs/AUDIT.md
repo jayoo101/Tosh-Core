@@ -10,7 +10,7 @@ firing without somebody deciding about it. Neither gate is advisory.
 | Baseline | `slither-baseline.json` | `aderyn-baseline.json` |
 | Gate | `scripts/checkSlitherFindings.mjs` | `scripts/checkAderynFindings.mjs` |
 | Scope | `src/` (`--filter-paths lib/\|test/\|script/`) | `src/` (inferred from `foundry.toml`) |
-| Current | 177 findings, 2H/66M/57L/52I | 272 findings, 52H/220L |
+| Current | 186 findings, 2H/66M/60L/58I | 284 findings, 55H/229L |
 | Runtime | ~15 s, plus a slower `pip install` | ~6 s, no compile of its own |
 
 The current counts include `src/v3/`: the token, hook, factory and lens now
@@ -148,7 +148,7 @@ rounded down toward negative infinity, the same correction Uniswap's
 
 ### Slither: v3 (deployed on `56`)
 
-74 of the 177 findings are in `src/v3/`. 57 repeat a v2 finding above,
+83 of the 186 findings are in `src/v3/`. 57 repeat a v2 finding above,
 including the second `weak-prng` High in the v3 copy of `_twapSqrtPriceX96`
 and the second `tx-origin` in `ToshTokenV3._update`. `ToshTokenV3` is
 `ToshToken` with `MAX_SUPPLY` raised a hundredfold to 2.1 billion; nothing
@@ -179,9 +179,24 @@ the project's pool and adds it as liquidity nobody can remove:
 - **`missing-inheritance`** — `ToshAutoLp` matches the one-function
   `IToshAutoLp` the hook declares without importing it.
 
+The last 9 are `ToshLaunchGatewayV3`, the gateway plus a permanent shelf halt:
+
+- **`assembly`**, **`low-level-calls`**, **`reentrancy-events`** in `execute`
+  — the old gateway's three, unchanged: a Safe-only forward to the factory
+  that bubbles the revert verbatim and emits after the call.
+- **`reentrancy-events`** and **`calls-loop`** in `_renew` — the call is
+  `factory.haltLadderMinting` on the immutable factory, and the loop is
+  `renewAll` over hooks only the Safe can add, one per project it chose to
+  stop.
+- **`naming-convention`** — the interface getter for the factory's
+  `MAX_HALT_DURATION` keeps the constant's name.
+- **`missing-inheritance`** ×3 — the gateway matches the old gateway's
+  interface, and `ToshFactory` and `ToshFactoryV3` match the gateway's own
+  `IToshFactoryV3Gate`, none of them imported.
+
 ## Aderyn disposition record
 
-23 detectors, 272 instances, all triaged, nothing unresolved.
+23 detectors, 284 instances, all triaged, nothing unresolved.
 
 Re-baselined on 2026-10-28 against v2. `src/` went from 10 source units to
 14: `ToshBidBook`, `ToshHookLens`, `AgentIdLib`, `WalletLib` and
@@ -201,7 +216,7 @@ whose return value could be dropped.
 `AgentIdLib.ownerOfHandle`, the two registry reads `agentKeyOf` is built from.
 Kept as named steps; inlining them changes nothing.
 
-`src/v3/` adds six source units (20 in all) and 108 instances. No detector
+`src/v3/` adds seven source units (21 in all) and 120 instances. No detector
 fires there that does not fire on v2. 87 sit at the v3 copy of a v2 site
 described below, apart from `quoteMint`, which is now on the lens, and
 `mintBondingCurve`'s `reentrancy-state-change`, which no longer fires: the
@@ -218,7 +233,10 @@ one-shot that reads the factory it is binding); `unchecked-return` on
 file-level pragma and `PUSH0` notes every source unit carries. The last 7
 are `ToshTokenV3` repeating `ToshToken` line for line: `tx-origin-used-for-auth`,
 `unsafe-erc20-operation`, `unchecked-return`, two `centralization-risk`, and
-the pragma and `PUSH0` notes.
+the pragma and `PUSH0` notes. The newest 12 are `ToshLaunchGatewayV3`:
+`reentrancy-state-change` ×3 in `haltForever` (view reads, below),
+`literal-instead-of-constant` ×5 (the 4-byte selector width), and one each of
+`missing-inheritance`, `modifier-used-only-once`, the pragma and `PUSH0`.
 
 And one stopped: **`contract-locks-ether`** — was 1, on v1's
 `ToshFactory.depositNative`. The v2 factory has no payable entry; native BNB
@@ -248,7 +266,7 @@ encoding. The code already handles the one real version of this concern: the
 silent truncation cannot make two different caps or durations produce the same
 initcode hash.
 
-**`reentrancy-state-change`** — 46, in three groups, none reachable:
+**`reentrancy-state-change`** — 49, in three groups, none reachable:
 
 - 18 are inside `nonReentrant` functions: `ToshBidBook.placeBid` ×5 and
   `fill` ×4, `ToshFactory.createLaunch` ×3, and on the hook `launch` ×4,
@@ -260,11 +278,13 @@ initcode hash.
   implementation's constructor ×2 (`decimals()` on the quote asset and the
   treasury's `TRIGGER_STEP()`), and `ToshBidBook.initialize`, which only the
   deployer can call, once, and which has already run on chain 56.
-- 6 call `external view` functions, which solc compiles to `STATICCALL`, so
+- 9 call `external view` functions, which solc compiles to `STATICCALL`, so
   no state can change during them: `ToshFactory.releaseAbandonedName` reading
-  `raised()` and `genesisDeadline()`, and `ToshLadderTreasury.addLadderToken`
+  `raised()` and `genesisDeadline()`, `ToshLadderTreasury.addLadderToken`
   ×5 (`tokenToHook()`, `launched()`, `twapSqrtPriceX96()`, `getPoolKey()`),
-  which is owner-only besides. Aderyn does not model mutability.
+  which is owner-only besides, and `ToshLaunchGatewayV3.haltForever` ×3
+  (`owner()`, `pendingOwner()`, `registeredHooks()` on the immutable factory),
+  which is Safe-only. Aderyn does not model mutability.
 
 `releaseAbandonedName` is the one worth naming individually, since it is
 permissionless and takes an address argument: its first statement is
@@ -382,12 +402,12 @@ rather than `_safeMint` means minting the developer's Circuit cannot call
 into the developer's address in the middle of `createLaunch`; a developer
 contract that cannot hold ERC-721s is the developer's choice to make.
 
-**`missing-inheritance`** — 2, `ToshLaunchGateway` and `CircuitRevenueVault`,
+**`missing-inheritance`** — 3, `ToshLaunchGateway`, `ToshLaunchGatewayV3` and `CircuitRevenueVault`,
 each matching a minimal interface declared elsewhere without importing it.
 Inheriting would pull another contract's interface file in for no behavioural
 change.
 
-**`push-zero-opcode`** (20) and **`unspecific-solidity-pragma`** (14) — both
+**`push-zero-opcode`** (21) and **`unspecific-solidity-pragma`** (15) — both
 follow from `^0.8.24`/`^0.8.26` pragmas plus `evm_version = "cancun"`. PUSH0 is
 intended; Shanghai-or-later is a deployment requirement this project already
 depends on more sharply elsewhere (the transient-storage mutex needs Cancun,
@@ -399,8 +419,8 @@ they initialise; the fifteenth is `ToshLadderTreasury`'s constructor parameter
 `_owner`, which shadows `Ownable`'s private slot and is handed straight to
 `Ownable`'s constructor. Nothing is shadowed at run time.
 
-**`literal-instead-of-constant`** (23), **`large-numeric-literal`** (16),
-**`modifier-used-only-once`** (8), **`costly-loop`** (6),
+**`literal-instead-of-constant`** (28), **`large-numeric-literal`** (16),
+**`modifier-used-only-once`** (9), **`costly-loop`** (6),
 **`require-revert-in-loop`** (10), **`uninitialized-local-variable`** (6) — style
 findings with no behavioural claim. The uninitialised locals are loop counters
 starting at zero; the loops that revert are batch operations (the bid book's
