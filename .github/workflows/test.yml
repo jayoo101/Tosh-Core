@@ -266,7 +266,8 @@ jobs:
           # 428 -> 429: the v3 buy-tax dust case.
           # 429 -> 440: test/v3/ShelfGate (11).
           # 440 -> 443: DeployV3 (1) and ForkV3Bsc (2; return early without BSC_RPC).
-          floor=443
+          # 443 -> 448: test/v3/AutoLpSandwich, the AutoLp sandwich probe (5).
+          floor=448
 
           read_count() {
             grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'
