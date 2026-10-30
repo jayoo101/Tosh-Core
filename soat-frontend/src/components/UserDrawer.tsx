@@ -17,6 +17,7 @@ import { NATIVE_SYMBOL } from '@/lib/chain'
 import { WRAPPED_NATIVE_ABI } from '@/lib/quoteAssets'
 import { V2_WBNB } from '@/lib/v2/config'
 import { useTxAction } from '@/components/ui'
+import { useWalletPicker } from '@/components/WalletPicker'
 import { fill, useT } from '@/i18n'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -66,7 +67,8 @@ export interface UserDrawerProps {
 
 export function UserDrawer({ open, onClose }: UserDrawerProps) {
   const { address }    = useAccount()
-  const { disconnect } = useDisconnect()
+  const { disconnect, disconnectAsync } = useDisconnect()
+  const picker = useWalletPicker()
   const t = useT().drawer
 
   useDrawerSideEffects(open, onClose)
@@ -76,22 +78,15 @@ export function UserDrawer({ open, onClose }: UserDrawerProps) {
     onClose()
   }
 
-  // EIP-2255 — forces the injected wallet (MetaMask / Rabby / Frame) to reopen
-  // its account-picker even when an account is already connected, so the user
-  // can swap which address feeds the session WITHOUT having to disconnect first
-  // and dig through the extension UI.  Silently no-ops on wallets that don't
-  // surface `wallet_requestPermissions` (e.g. WalletConnect).
+  // Disconnect, then reopen the wallet picker. Asking `window.ethereum` for
+  // `wallet_requestPermissions` instead did nothing over WalletConnect and in
+  // most mobile wallet browsers, which left phones stuck on the first wallet.
+  // Reconnecting an injected wallet still shows its account picker: wagmi's
+  // injected connector requests permissions after a disconnect.
   const handleSwitchAccount = async () => {
-    try {
-      const eth = (globalThis as unknown as { ethereum?: { request: (a: { method: string; params?: unknown[] }) => Promise<unknown> } }).ethereum
-      if (!eth?.request) return
-      await eth.request({
-        method: 'wallet_requestPermissions',
-        params: [{ eth_accounts: {} }],
-      })
-    } catch {
-      /* user cancelled the picker — leave the existing connection intact */
-    }
+    onClose()
+    await disconnectAsync().catch(() => {})
+    if (picker) picker.open()
   }
 
   return (

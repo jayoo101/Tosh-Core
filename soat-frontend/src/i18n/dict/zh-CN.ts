@@ -142,7 +142,7 @@ export const ZH_CN: PartialDictionary = {
     closeDrawer:     '关闭抽屉',
     title:           '我的账户',
     close:           '关闭',
-    switchTitle:     '重新打开钱包的账户选择器（EIP-2255）',
+    switchTitle:     '断开当前钱包，重新选择钱包或账户',
     switch:          '切换',
     disconnectTitle: '结束这个地址的钱包会话',
     disconnect:      '断开',

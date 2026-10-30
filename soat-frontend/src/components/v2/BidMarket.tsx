@@ -48,7 +48,10 @@ export function BidMarket({ hook, symbol, embedded = false }: {
 
   if (!s) return <p className="text-note text-text-tertiary">…</p>
   const quote = v2Quote(s.quoteAsset, s.acceptsNative)
-  const mine = book.bids.filter(b => address && b.bidder.toLowerCase() === address.toLowerCase() && b.escrow > 0n)
+  // Both the connected wallet's bids and the Agent wallet's: a phone that has
+  // some other wallet connected must still see, and cancel, the Agent's.
+  const owners = [connected, agent].filter((a): a is Address => !!a).map(a => a.toLowerCase())
+  const mine = book.bids.filter(b => owners.includes(b.bidder.toLowerCase()) && b.escrow > 0n)
 
   if (embedded) {
     const best = book.open.reduce((m, b) => (b.price > m ? b.price : m), 0n)
@@ -109,7 +112,7 @@ export function BidMarket({ hook, symbol, embedded = false }: {
           quote={quote}
           onDone={book.refetch}
           empty={address ? t.myBidsNone : t.myBidsConnect}
-          footer={!connected && <AgentBidsLookup known={!!agent} />}
+          footer={<AgentBidsLookup known={!!agent} />}
         />
         <RecentTrades hook={hook} quote={quote} />
       </div>
@@ -355,7 +358,7 @@ function MyBidRow({ bid, quote, onDone, showHook }: {
       )}
       <span>{fmtSig(bid.price, 18, 6)} {quote?.symbol ?? ''}</span>
       <span className="text-text-secondary">{fill(t.filledOf, { filled: fmtSig(bid.filled), qty: fmtSig(bid.qty) })}</span>
-      {address && (
+      {address && address.toLowerCase() === bid.bidder.toLowerCase() && (
         <Button
           size="sm"
           variant="ghost"
