@@ -47,6 +47,11 @@ test is worth more than the prose.
   (SafeL2 1.4.1) owns both v3 treasuries directly, and each v3 factory is owned
   by its `ToshLaunchGateway`, whose Safe is the same one: any current Safe
   signer may list through it, and every other owner call needs the Safe itself.
+  `ToshLaunchGatewayV3` is that gateway plus `haltForever(hook)`: once the Safe
+  calls it, anyone can re-arm the project's 7-day shelf halt with `renewHalt`,
+  and the gateway refuses every call that would lift or shorten it, or move the
+  factory to another owner. The halt holds only while someone renews it inside
+  each window; a lapse reopens the shelf until the next renewal.
   `ToshBidBook` and both `ToshAutoLp` instances have no owner. v2 is held the
   same way. `DeployV3.s.sol` refuses a chain-56 deploy whose owner Safe has any other
   shape. Two of the three owner keys are held by the operator's counterparties
