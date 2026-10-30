@@ -275,18 +275,35 @@ it is observation *of*: the v1 source of the time on a testnet, not the retired
 treasuries are built from source that carries the same gate; no token has been
 listed on them yet, so on `56` it rests on provenance until one is.
 
-**`ToshAutoLp`'s buy is new in v3 and has not been sandwich-probed — try it.**
-80 % of every shelf payment is bought into the project's pool and added as
-liquidity, so like the treasury leg it is a public, sized market buy. It runs
-only when the TWAP is mature and spot is no more than 99 bps (in sqrt price) above it,
-spends at most `MAX_DEPTH_BPS` (2 %) of the pool's virtual quote reserve per
-run, of which about half is swapped, and refuses a swap that would move sqrt
-price more than 2 %; otherwise the amount stays pending. `flush` refuses a block
-that already has a swap. Its buys pay the 1 % tax and never carry the treasury
-buyback. The reasoning is the same ratio argument as the treasury's — impact of
-about 1 % against a round trip of about 2.4 % — but unlike the treasury there
-is no measured probe behind it. `test/v3/AutoLp.t.sol` pins the deferral rules,
-not an attacker's P&L. **A configuration where sandwiching it pays is a
+**Sandwiching `ToshAutoLp`'s buy loses, but by a thinner margin than the
+treasury's — check the flush path.** 80 % of every shelf payment is bought into
+the project's pool and added as liquidity, so like the treasury leg it is a
+public, sized market buy. It runs only when the TWAP is mature and spot is no
+more than 99 bps (in sqrt price) above it, spends at most `MAX_DEPTH_BPS` (2 %)
+of the pool's virtual quote reserve per run, of which about half is swapped, and
+refuses a swap that would move sqrt price more than 2 %; otherwise the amount
+stays pending. `flush` refuses a block that already has a swap. Its buys pay the
+1 % tax and never carry the treasury buyback.
+
+`test/v3/AutoLpSandwich.t.sol` measures it the same way as the treasury probe:
+the attacker buys, the AutoLp run happens, the attacker sells everything, and
+the identical round trip without the run is the control. Pumps from 0.01 % to
+32 % of the reserve, on the `AutoLp.t.sol` launch (8 pooled, a run at the cap):
+
+| path | how the attacker gets around the gates | edge as a share of the round trip's cost | result |
+|---|---|---:|---|
+| shelf sale, same block | pump under ~0.05 % of the reserve; anything larger trips `MAX_MINT_TICK_DRIFT` (10 ticks) and the sale reverts | 53 % | loses at every size |
+| shelf sale, next block | pump at the end of block N, the sale opens N+1 | 53 % | loses at every size |
+| `flush`, next block | same, with quote already pending | **82 %** | loses at every size |
+| several flushes on one pump | — | — | only one run: after it, spot is past the 99 bps premium and the next `flush` defers |
+
+At ≥ 2 % of the reserve every path defers (spot above the TWAP premium), so the
+edge is zero there. The round trip costs ~2.4 % of the pump (1 % tax each way
+plus the 0.2 % pool fee twice), and a capped run hands back ~1.9 %, so the ratio
+argument holds with ~18 % to spare on `flush`. That margin is what to attack:
+anything that cheapens the attacker's round trip — a fee-free route into the
+same pool, a rebate, a token-side tax exemption — or lets one pump see more
+than one capped run. **A configuration where sandwiching it pays is a
 finding.**
 
 One honest limit remains. The gate fires **once, at listing**, while
