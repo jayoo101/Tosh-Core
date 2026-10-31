@@ -4,11 +4,11 @@
   "_scope": "src/ — inferred from foundry.toml, which excludes lib/, test/ and script/",
   "_generated": "2026-10-31",
   "sourceUnits": 27,
-  "sloc": 5713,
+  "sloc": 5769,
   "detectorsRun": 88,
-  "total": 371,
+  "total": 374,
   "byImpact": {
-    "High": 74,
+    "High": 77,
     "Low": 297
   },
   "byCheck": {
@@ -23,12 +23,12 @@
     "modifier-used-only-once": 11,
     "non-reentrant-not-first": 12,
     "push-zero-opcode": 27,
-    "reentrancy-state-change": 64,
+    "reentrancy-state-change": 65,
     "require-revert-in-loop": 10,
     "tx-origin-used-for-auth": 3,
     "unchecked-return": 18,
     "uninitialized-local-variable": 6,
-    "unsafe-casting": 4,
+    "unsafe-casting": 6,
     "unsafe-erc20-operation": 3,
     "unsafe-oz-erc721-mint": 1,
     "unspecific-solidity-pragma": 20,
@@ -1293,6 +1293,13 @@
     {
       "check": "reentrancy-state-change",
       "impact": "High",
+      "file": "src/v31/ToshLaunchpadHookV31.sol",
+      "scope": "ToshLaunchpadHookV31.mintL2",
+      "count": 1
+    },
+    {
+      "check": "reentrancy-state-change",
+      "impact": "High",
       "file": "src/v31/ToshMintVesting.sol",
       "scope": "ToshMintVesting.lock",
       "count": 1
@@ -1560,6 +1567,13 @@
       "check": "unsafe-casting",
       "impact": "High",
       "file": "src/v31/ToshLaunchpadHookV31.sol",
+      "scope": "ToshLaunchpadHookV31._settleBurn",
+      "count": 1
+    },
+    {
+      "check": "unsafe-casting",
+      "impact": "High",
+      "file": "src/v31/ToshLaunchpadHookV31.sol",
       "scope": "ToshLaunchpadHookV31.launch",
       "count": 1
     },
@@ -1568,7 +1582,7 @@
       "impact": "High",
       "file": "src/v31/ToshLaunchpadHookV31.sol",
       "scope": "ToshLaunchpadHookV31.mintL2",
-      "count": 1
+      "count": 2
     },
     {
       "check": "unsafe-erc20-operation",

@@ -278,22 +278,123 @@ contract L2MintTestV31 is V31Base {
         assertEq(afterMint, decayed + hook.LN_SPAN_WAD() * 20e18 / hook.l2Supply(), "next mint starts from the decay");
     }
 
-    function test_decay_hasNoFloor_sweepsRemainderAndChargesOnlyCost() public {
+    function test_decay_hasNoFloor() public {
         vm.warp(block.timestamp + 30 days);
         assertEq(hook.l2Price(), 1, "no floor");
+    }
+
+    // ─── Idle burn ────────────────────────────────────────────────────────────
+
+    function _b() internal view returns (uint256) {
+        return hook.l2Supply() / 1008;
+    }
+
+    function test_burn_everyWholeTenIdleMinutes() public {
+        uint256 supply = hook.l2Supply();
+        uint256 t0 = vm.getBlockTimestamp();
+        uint256 deadBefore = token.balanceOf(DEAD);
+
+        vm.warp(t0 + 10 minutes - 1);
+        assertEq(hook.l2Remaining(), supply, "nothing before a full period");
+        vm.warp(t0 + 10 minutes);
+        assertEq(hook.l2Remaining(), supply - _b(), "one period burns S/1008");
+        vm.warp(t0 + 35 minutes);
+        assertEq(hook.l2Remaining(), supply - 3 * _b(), "whole periods only");
+
+        assertEq(token.balanceOf(DEAD), deadBefore, "views burn nothing");
+        vm.expectEmit(address(hook));
+        emit ToshLaunchpadHookV31.L2Burned(3 * _b(), 3 * _b());
+        hook.settleL2Burn();
+        assertEq(token.balanceOf(DEAD) - deadBefore, 3 * _b(), "settled to 0xdEaD");
+        assertEq(hook.l2Remaining(), supply - 3 * _b());
+
+        hook.settleL2Burn();
+        assertEq(token.balanceOf(DEAD) - deadBefore, 3 * _b(), "a period burns once");
+        vm.warp(t0 + 40 minutes);
+        hook.settleL2Burn();
+        assertEq(token.balanceOf(DEAD) - deadBefore, 4 * _b(), "and the clock keeps running");
+    }
+
+    function test_burn_mintSettlesAndRestartsTheClock() public {
+        uint256 supply = hook.l2Supply();
+        uint256 deadBefore = token.balanceOf(DEAD);
+        vm.warp(block.timestamp + 25 minutes);
+        (uint256 tokens,) = _mint(alice, 50e18);
+        assertEq(token.balanceOf(DEAD) - deadBefore, 2 * _b(), "due burn settled by the mint");
+        assertEq(hook.l2Remaining(), supply - 2 * _b() - tokens);
+
+        uint256 t1 = vm.getBlockTimestamp();
+        vm.warp(t1 + 10 minutes - 1);
+        assertEq(hook.l2Remaining(), supply - 2 * _b() - tokens, "the mint restarted the clock");
+        vm.warp(t1 + 10 minutes);
+        assertEq(hook.l2Remaining(), supply - 3 * _b() - tokens);
+    }
+
+    function test_burn_stopsWhileHalted() public {
+        uint256 supply = hook.l2Supply();
+        uint256 t0 = vm.getBlockTimestamp();
+        vm.warp(t0 + 5 minutes);
+        vm.prank(admin);
+        factory.haltLadderMinting(address(hook), 1 hours);
+        vm.warp(t0 + 5 minutes + 1 hours);
+        assertEq(hook.l2Remaining(), supply, "halted time does not count");
+        vm.warp(t0 + 10 minutes + 1 hours);
+        assertEq(hook.l2Remaining(), supply - _b());
+    }
+
+    function test_burn_idleWeekBurnsTheShelf() public {
+        uint256 supply = hook.l2Supply();
+        vm.warp(block.timestamp + 7 days);
+        assertEq(hook.l2Remaining(), supply - 1008 * _b(), "rounding dust only");
+        vm.warp(block.timestamp + 10 minutes);
+        assertEq(hook.l2Remaining(), 0, "the last period takes what is left");
+
+        vm.prank(alice);
+        vm.expectRevert(ToshLaunchpadHookV31.L2SoldOut.selector);
+        hook.mintL2(MIN_BUY, 0);
+        (uint256 t,,) = lens.quoteL2(address(hook), MIN_BUY);
+        assertEq(t, 0);
+
+        hook.settleL2Burn();
+        assertEq(token.totalSupply(), token.MAX_SUPPLY() - (730_000_000e18 - supply), "burned, not unminted");
+    }
+
+    function test_burn_mintSweepsWhatTheBurnLeft() public {
+        uint256 supply = hook.l2Supply();
+        vm.warp(block.timestamp + 1002 * 10 minutes);
+        assertEq(hook.l2Remaining(), supply - 1002 * _b());
 
         uint256 before = quote.balanceOf(alice);
         (uint256 tokens, uint256 cost) = _mint(alice, MIN_BUY);
-        assertEq(tokens, hook.l2Supply(), "remainder minted");
+        assertEq(tokens, supply - 1002 * _b(), "remainder minted");
         assertLt(cost, MIN_BUY, "only the remainder's cost is charged");
         assertEq(before - quote.balanceOf(alice), cost);
-
+        assertEq(hook.l2Remaining(), 0);
         assertLe(token.totalSupply(), token.MAX_SUPPLY());
-        assertApproxEqRel(token.totalSupply(), token.MAX_SUPPLY(), 1e6, "genesis + L2 lands on 1B");
 
         vm.prank(bob);
         vm.expectRevert(ToshLaunchpadHookV31.L2SoldOut.selector);
         hook.mintL2(MIN_BUY, 0);
+    }
+
+    function test_burn_lensReportsDueBurn() public {
+        (uint256 tokens,) = _mint(alice, 50e18);
+        vm.warp(block.timestamp + 20 minutes);
+        ToshHookLensV31.L2State memory s = lens.l2State(address(hook));
+        assertEq(s.minted, tokens);
+        assertEq(s.burned, 2 * _b(), "includes the unsettled burn");
+        assertEq(s.remaining, s.supply - tokens - 2 * _b());
+
+        (uint256 q,,) = lens.quoteL2(address(hook), 20e18);
+        (uint256 got,) = _mint(bob, 20e18);
+        assertEq(got, q, "quote matches a mint that settles first");
+    }
+
+    function test_burn_settleBeforeLaunchIsANoOp() public {
+        (, ToshLaunchpadHookV31 h) = _create("Delta", HARD_CAP);
+        vm.warp(block.timestamp + 1 days);
+        h.settleL2Burn();
+        assertEq(h.l2Remaining(), 0);
     }
 
     function test_lens_stateAndAccount() public {
@@ -313,7 +414,7 @@ contract L2MintTestV31 is V31Base {
 
     // ─── Vesting ──────────────────────────────────────────────────────────────
 
-    function test_vesting_unlocksLinearlyPerMinuteOver12h() public {
+    function test_vesting_unlocksLinearlyPerMinuteOver8h() public {
         (uint256 tokens,) = _mint(alice, 100e18);
         (,, uint256 t0,) = vesting.lockOf(address(hook), alice);
 
@@ -328,17 +429,21 @@ contract L2MintTestV31 is V31Base {
         vm.warp(t0 + 60);
         vm.prank(alice);
         uint256 first = vesting.claim(address(hook));
-        assertEq(first, tokens / 720, "1/720 per minute");
+        assertEq(first, tokens / 480, "1/480 per minute");
 
-        vm.warp(t0 + 6 hours);
+        vm.warp(t0 + 4 hours);
         vm.prank(alice);
         vesting.claim(address(hook));
-        assertEq(token.balanceOf(alice), tokens / 2, "half at 6h");
+        assertEq(token.balanceOf(alice), tokens / 2, "half at 4h");
 
-        vm.warp(t0 + 12 hours + 1 days);
+        vm.warp(t0 + 8 hours - 1);
+        (,,, uint256 left) = vesting.lockOf(address(hook), alice);
+        assertLt(left, tokens - tokens / 2, "not all before 8h");
+
+        vm.warp(t0 + 8 hours + 1 days);
         vm.prank(alice);
         vesting.claim(address(hook));
-        assertEq(token.balanceOf(alice), tokens, "all at 12h");
+        assertEq(token.balanceOf(alice), tokens, "all at 8h");
         assertEq(token.balanceOf(address(vesting)), 0);
 
         vm.prank(alice);

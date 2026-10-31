@@ -13,6 +13,7 @@ import {HookAddress} from "../libraries/HookAddress.sol";
 import {ToshCloneLib} from "../libraries/ToshCloneLib.sol";
 import {CircuitNFT} from "../CircuitNFT.sol";
 import {AgentIdLib} from "../libraries/AgentIdLib.sol";
+import {L2CurveV31} from "./libraries/L2CurveV31.sol";
 
 /// @title  ToshFactoryV31 (ToshX v3.1)
 /// @notice Platform singleton for ONE quote asset: deploys launches and holds
@@ -402,6 +403,17 @@ contract ToshFactoryV31 is Ownable2Step, Pausable, ReentrancyGuard {
             uint256 end = block.timestamp < h.until ? block.timestamp : h.until;
             total += end - start;
         }
+    }
+
+    /// @notice `L2CurveV31.quote`, hosted here because the hook has no room
+    ///         left under EIP-170 for the logarithm and exponential it needs.
+    ///         Pure: every hook's `mintL2` calls it with its own state.
+    function l2Quote(uint256 price, uint256 minted, uint256 supply, uint256 pay)
+        external
+        pure
+        returns (uint256 tokens, uint256 cost, uint256 priceAfter)
+    {
+        return L2CurveV31.quote(price, minted, supply, pay);
     }
 
     // ─── Shelf allowance ──────────────────────────────────────────────────────

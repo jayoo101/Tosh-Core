@@ -32,6 +32,7 @@ interface IToshHookViewV31 {
     function l2Price() external view returns (uint256);
     function l2Quota() external view returns (uint256);
     function l2State() external view returns (uint256 minted, uint256 lastMintAt, uint256 lastPrice);
+    function l2Remaining() external view returns (uint256);
 }
 
 interface IToshFactoryViewV31 {
@@ -86,6 +87,10 @@ contract ToshHookLensV31 {
         uint256 lastPrice;
         uint256 lastMintAt;
         uint256 minted;
+        /// @dev Idle-burned, including a burn that is due but unsettled.
+        uint256 burned;
+        /// @dev `supply − minted − burned`, what a mint can still take.
+        uint256 remaining;
         uint256 supply;
         uint256 quota;
     }
@@ -164,7 +169,8 @@ contract ToshHookLensV31 {
     }
 
     /// @notice What `mintL2(pay, 0)` would lock and charge if it landed now.
-    ///         Zeroes before launch, for `pay == 0` and once sold out.
+    ///         Zeroes before launch, for `pay == 0` and once nothing is left
+    ///         to mint, sold or burned.
     function quoteL2(address hook, uint256 pay)
         external
         view
@@ -172,10 +178,10 @@ contract ToshHookLensV31 {
     {
         IToshHookViewV31 h = IToshHookViewV31(hook);
         if (!h.launched() || pay == 0) return (0, 0, 0);
-        (uint256 minted,,) = h.l2State();
+        uint256 left = h.l2Remaining();
+        if (left == 0) return (0, 0, 0);
         uint256 supply = h.l2Supply();
-        if (minted >= supply) return (0, 0, 0);
-        return L2CurveV31.quote(h.l2Price(), minted, supply, pay);
+        return L2CurveV31.quote(h.l2Price(), supply - left, supply, pay);
     }
 
     function l2State(address hook) external view returns (L2State memory s) {
@@ -188,6 +194,8 @@ contract ToshHookLensV31 {
         s.price = h.l2Price();
         (s.minted, s.lastMintAt, s.lastPrice) = h.l2State();
         s.supply = h.l2Supply();
+        s.remaining = h.l2Remaining();
+        s.burned = s.supply - s.minted - s.remaining;
     }
 
     function l2Account(address hook, address account) external view returns (L2Account memory a) {
