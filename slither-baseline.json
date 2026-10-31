@@ -3,12 +3,12 @@
   "_slither": "0.11.6",
   "_filterPaths": "lib/|test/|script/",
   "_generated": "2026-10-31",
-  "contracts": 140,
+  "contracts": 141,
   "detectorsRun": 102,
-  "total": 253,
+  "total": 255,
   "byImpact": {
     "Informational": 76,
-    "Low": 82,
+    "Low": 84,
     "Medium": 93,
     "High": 2
   },
@@ -18,7 +18,7 @@
     "cyclomatic-complexity": 8,
     "dead-code": 1,
     "divide-before-multiply": 10,
-    "incorrect-equality": 13,
+    "incorrect-equality": 14,
     "low-level-calls": 4,
     "missing-inheritance": 20,
     "missing-zero-check": 2,
@@ -26,11 +26,11 @@
     "reentrancy-benign": 10,
     "reentrancy-events": 21,
     "reentrancy-no-eth": 5,
-    "timestamp": 39,
+    "timestamp": 41,
     "too-many-digits": 1,
     "tx-origin": 3,
     "uninitialized-local": 19,
-    "unused-return": 43,
+    "unused-return": 42,
     "weak-prng": 2
   },
   "findings": [
@@ -402,7 +402,14 @@
       "check": "incorrect-equality",
       "impact": "Medium",
       "file": "src/v31/ToshBuybackV31.sol",
-      "scope": "ToshBuybackV31._run",
+      "scope": "ToshBuybackV31.cancelRescue",
+      "count": 1
+    },
+    {
+      "check": "incorrect-equality",
+      "impact": "Medium",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31.executeRescue",
       "count": 1
     },
     {
@@ -843,7 +850,7 @@
       "check": "reentrancy-events",
       "impact": "Low",
       "file": "src/v31/ToshBuybackV31.sol",
-      "scope": "ToshBuybackV31._run",
+      "scope": "ToshBuybackV31._leg",
       "count": 1
     },
     {
@@ -1082,6 +1089,20 @@
       "impact": "Low",
       "file": "src/v31/ToshBuybackV31.sol",
       "scope": "ToshBuybackV31.bnbUsdPrice",
+      "count": 1
+    },
+    {
+      "check": "timestamp",
+      "impact": "Low",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31.cancelRescue",
+      "count": 1
+    },
+    {
+      "check": "timestamp",
+      "impact": "Low",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31.executeRescue",
       "count": 1
     },
     {
@@ -1502,13 +1523,6 @@
       "impact": "Medium",
       "file": "src/v31/ToshBuybackV31.sol",
       "scope": "ToshBuybackV31._convertLeg",
-      "count": 1
-    },
-    {
-      "check": "unused-return",
-      "impact": "Medium",
-      "file": "src/v31/ToshBuybackV31.sol",
-      "scope": "ToshBuybackV31._run",
       "count": 1
     },
     {
