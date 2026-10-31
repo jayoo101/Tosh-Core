@@ -26,9 +26,8 @@ import {SafeERC20} from "../../lib/openzeppelin-contracts/contracts/token/ERC20/
 ///         Two legs:
 ///
 ///           1. CONVERT: USDT → WBNB through the PancakeSwap V2 USDT/WBNB
-///              pair, refused if the fill is worse than Chainlink's BNB/USD
-///              by more than the pair fee, the leg's own impact and
-///              `ORACLE_SLACK_BPS`.
+///              pair, refused if the fill is more than
+///              `MAX_ORACLE_DEVIATION_BPS` worse than Chainlink's BNB/USD.
 ///           2. BURN: WBNB → TOSH through TOSH's own Infinity pool, bounded
 ///              against that pool's 30-minute TWAP, with every TOSH bought
 ///              sent to 0xdEaD. The TOSH hook charges its 1 % buy tax on it.
@@ -43,10 +42,16 @@ import {SafeERC20} from "../../lib/openzeppelin-contracts/contracts/token/ERC20/
 ///         balance is worked off over many pokes rather than in one bite a
 ///         sandwich could profit from.
 ///
-///         No owner, no withdrawal, no rescue: the only ways out are the
-///         V2 pair (for WBNB back to this contract) and the Infinity Vault
-///         (for TOSH to 0xdEaD). The deployer's one power is binding the
-///         factory whose hooks may poke, once.
+///         No owner and no withdrawal. In normal running the only ways out
+///         are the V2 pair (for WBNB back to this contract) and the Infinity
+///         Vault (for TOSH to 0xdEaD). The deployer's one power is binding
+///         the factory whose hooks may poke, once.
+///
+///         The one exception is a rescue, for a dependency that has died (a
+///         retired feed, a drained pair, a dead TOSH pool): the `rescuer`
+///         Safe requests one token's whole balance to one address, and may
+///         execute it only `RESCUE_DELAY` later. The request is public for
+///         that whole wait and can be cancelled.
 contract ToshBuybackV31 {
     using PoolIdLibrary for PoolKey;
     using SafeERC20 for IERC20;
@@ -62,10 +67,10 @@ contract ToshBuybackV31 {
     ///         the ~1.4 % at which sandwiching a leg starts to pay.
     uint256 public constant MAX_LEG_DEPTH_BPS = 50;
 
-    /// @notice How much worse than Chainlink's BNB/USD a convert leg may fill
-    ///         beyond the pair's 0.25 % fee and the leg's own price impact:
-    ///         oracle lag, and all a sandwich could take.
-    uint256 public constant ORACLE_SLACK_BPS = 50;
+    /// @notice How much worse than Chainlink's BNB/USD a convert leg may fill,
+    ///         covering the pair's 0.25 % fee, the leg's own impact and oracle
+    ///         lag. What it leaves beyond those is what a sandwich could take.
+    uint256 public constant MAX_ORACLE_DEVIATION_BPS = 300;
 
     /// @notice Oldest Chainlink answer a convert leg will trust.
     uint256 public constant MAX_ORACLE_AGE = 1 hours;
@@ -84,9 +89,11 @@ contract ToshBuybackV31 {
 
     address public constant DEAD_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
+    /// @notice Wait between a rescue's request and its execution.
+    uint256 public constant RESCUE_DELAY = 72 hours;
+
     uint256 internal constant BPS = 10_000;
     uint256 internal constant V2_FEE_FACTOR = 9975; // PancakeSwap V2: 0.25 %
-    uint256 internal constant V2_FEE_BPS = BPS - V2_FEE_FACTOR;
 
     /// @dev Transient recursion guard, read by v3.1 hooks through
     ///      `piggybackActive()`.
@@ -113,6 +120,8 @@ contract ToshBuybackV31 {
     address public immutable toshHook;
     IERC20 public immutable tosh;
     address public immutable deployer;
+    /// @notice The Safe that may request and execute a rescue.
+    address public immutable rescuer;
 
     // ─── State ────────────────────────────────────────────────────────────────
 
@@ -123,12 +132,24 @@ contract ToshBuybackV31 {
     ///         inside a block, so two legs there could share one sandwich.
     uint256 public lastBurnBlock;
 
+    struct Rescue {
+        address token;
+        address to;
+        uint64 readyAt;
+    }
+
+    /// @notice The requested rescue, if any; `readyAt == 0` when none.
+    Rescue public pendingRescue;
+
     // ─── Events / errors ──────────────────────────────────────────────────────
 
     event FactorySet(address indexed factory);
     event Converted(uint256 usdtIn, uint256 wbnbOut);
     event BuybackBurned(uint256 wbnbIn, uint256 toshBurned);
     event LegSkipped(bool burnLeg, uint256 amount);
+    event RescueRequested(address indexed token, address indexed to, uint256 readyAt);
+    event RescueCancelled(address indexed token, address indexed to);
+    event Rescued(address indexed token, address indexed to, uint256 amount);
 
     error ZeroAddress();
     error OnlyDeployer();
@@ -148,6 +169,9 @@ contract ToshBuybackV31 {
     error TwapNotMature();
     error SpotAboveTwap();
     error LegAlreadyRanThisBlock();
+    error OnlyRescuer();
+    error NoRescuePending();
+    error RescueNotReady();
 
     constructor(
         address _poolManager,
@@ -157,11 +181,13 @@ contract ToshBuybackV31 {
         address _pair,
         address _bnbUsdFeed,
         address _toshHook,
-        uint256 _triggerStep
+        uint256 _triggerStep,
+        address _rescuer
     ) {
         if (
             _poolManager == address(0) || _vault == address(0) || _usdt == address(0) || _wbnb == address(0)
                 || _pair == address(0) || _bnbUsdFeed == address(0) || _toshHook == address(0) || _triggerStep == 0
+                || _rescuer == address(0)
         ) revert ZeroAddress();
         if (IERC20Metadata(_usdt).decimals() != 18 || IERC20Metadata(_wbnb).decimals() != 18) revert BadDecimals();
         // A mismatch would fail every burn leg inside its try, for good.
@@ -189,6 +215,7 @@ contract ToshBuybackV31 {
         tosh = IERC20(Currency.unwrap(key.currency1));
         TRIGGER_STEP = _triggerStep;
         deployer = msg.sender;
+        rescuer = _rescuer;
     }
 
     /// @notice Bind the v3.1 factory whose hooks may poke. Its hook
@@ -205,6 +232,40 @@ contract ToshBuybackV31 {
         }
         factory = factory_;
         emit FactorySet(factory_);
+    }
+
+    // ─── Rescue ───────────────────────────────────────────────────────────────
+
+    /// @notice Ask to send this contract's whole `token` balance to `to`,
+    ///         executable `RESCUE_DELAY` from now. Replaces any pending ask.
+    function requestRescue(address token, address to) external {
+        if (msg.sender != rescuer) revert OnlyRescuer();
+        if (token == address(0) || to == address(0)) revert ZeroAddress();
+        uint256 readyAt = block.timestamp + RESCUE_DELAY;
+        // forge-lint: disable-next-line(unsafe-typecast) — a timestamp plus 72 hours
+        pendingRescue = Rescue({token: token, to: to, readyAt: uint64(readyAt)});
+        emit RescueRequested(token, to, readyAt);
+    }
+
+    function cancelRescue() external {
+        if (msg.sender != rescuer) revert OnlyRescuer();
+        Rescue memory r = pendingRescue;
+        if (r.readyAt == 0) revert NoRescuePending();
+        delete pendingRescue;
+        emit RescueCancelled(r.token, r.to);
+    }
+
+    /// @notice Carry out the pending rescue once its delay has passed. Sends
+    ///         the balance held now, not the one held at the request.
+    function executeRescue() external returns (uint256 amount) {
+        if (msg.sender != rescuer) revert OnlyRescuer();
+        Rescue memory r = pendingRescue;
+        if (r.readyAt == 0) revert NoRescuePending();
+        if (block.timestamp < r.readyAt) revert RescueNotReady();
+        delete pendingRescue;
+        amount = IERC20(r.token).balanceOf(address(this));
+        IERC20(r.token).safeTransfer(r.to, amount);
+        emit Rescued(r.token, r.to, amount);
     }
 
     // ─── Pokes ────────────────────────────────────────────────────────────────
@@ -275,9 +336,9 @@ contract ToshBuybackV31 {
         uint256 inWithFee = amountIn * V2_FEE_FACTOR;
         uint256 out = (inWithFee * rOut) / (rIn * BPS + inWithFee);
         if (out == 0) revert NotArmed();
-        // Impact is at most MAX_LEG_DEPTH_BPS, so the tolerance stays under 1.25 %.
-        uint256 tolerance = V2_FEE_BPS + (amountIn * BPS) / rIn + ORACLE_SLACK_BPS;
-        if ((out * bnbUsdPrice()) / 1e18 < (amountIn * (BPS - tolerance)) / BPS) revert PriceOffOracle();
+        if ((out * bnbUsdPrice()) / 1e18 < (amountIn * (BPS - MAX_ORACLE_DEVIATION_BPS)) / BPS) {
+            revert PriceOffOracle();
+        }
 
         usdt.safeTransfer(address(pair), amountIn);
         (uint256 out0, uint256 out1) = _usdtIsToken0 ? (uint256(0), out) : (out, uint256(0));

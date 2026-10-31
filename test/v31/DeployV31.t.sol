@@ -230,6 +230,7 @@ contract DeployV31Test is Test {
         assertEq(impl.platformFeeRecipient(), s.buyback);
         assertEq(impl.ladderTreasury(), s.buyback);
         assertEq(impl.PIGGYBACK_TRIGGER_STEP(), 180e18);
+        assertEq(bb.rescuer(), _e().safe, "only the Safe can rescue");
         assertEq(impl.mintVesting(), s.vesting);
         assertEq(impl.autoLp(), s.autoLp);
 

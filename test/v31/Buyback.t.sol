@@ -22,6 +22,7 @@ contract BuybackV31Test is V31Base {
 
     uint256 internal constant STEP = 180e18;
     uint160 internal constant SQRT_10000 = 100 << 96; // 10 000 TOSH per WBNB
+    address internal constant RESCUER = address(0x5AFE);
 
     MockQuoteAsset internal wbnb;
     MockQuoteAsset internal tosh;
@@ -79,7 +80,8 @@ contract BuybackV31Test is V31Base {
             address(pair),
             address(feed),
             address(toshHook),
-            STEP
+            STEP,
+            RESCUER
         );
 
         // A v3.1 stack whose hooks pay and poke the buyback.
@@ -111,7 +113,8 @@ contract BuybackV31Test is V31Base {
             address(other),
             address(feed),
             address(toshHook),
-            STEP
+            STEP,
+            RESCUER
         );
 
         MockToshHook wrong = new MockToshHook();
@@ -125,7 +128,8 @@ contract BuybackV31Test is V31Base {
             address(pair),
             address(feed),
             address(wrong),
-            STEP
+            STEP,
+            RESCUER
         );
     }
 
@@ -139,7 +143,8 @@ contract BuybackV31Test is V31Base {
             address(pair),
             address(feed),
             address(toshHook),
-            STEP
+            STEP,
+            RESCUER
         );
 
         MockToshHook elsewhere = new MockToshHook();
@@ -156,7 +161,8 @@ contract BuybackV31Test is V31Base {
             address(pair),
             address(feed),
             address(elsewhere),
-            STEP
+            STEP,
+            RESCUER
         );
     }
 
@@ -169,7 +175,8 @@ contract BuybackV31Test is V31Base {
             address(pair),
             address(feed),
             address(toshHook),
-            STEP
+            STEP,
+            RESCUER
         );
         vm.prank(alice);
         vm.expectRevert(ToshBuybackV31.OnlyDeployer.selector);
@@ -245,18 +252,80 @@ contract BuybackV31Test is V31Base {
         assertEq(wbnb.balanceOf(address(buyback)), 0);
     }
 
-    function test_convert_toleratesOnlyFeeImpactAndSlack() public {
-        // 1.4 % under Chainlink: inside the old flat 2 %, beyond 0.25 % fee + impact + 0.5 %.
-        feed.set(690e8, block.timestamp);
+    function test_convert_toleratesUpTo3PercentOffChainlink() public {
+        feed.set(680e8, block.timestamp); // the fill is ~3.1 % under Chainlink
         quote.mint(address(buyback), 1_000e18);
         vm.expectEmit(address(buyback));
         emit ToshBuybackV31.LegSkipped(false, 500e18);
         buyback.pokeBuyback();
         assertEq(wbnb.balanceOf(address(buyback)), 0);
 
-        feed.set(697e8, block.timestamp); // 0.68 % under: fee + slack covers it
+        feed.set(690e8, block.timestamp); // ~1.7 % under
         buyback.pokeBuyback();
         assertGt(wbnb.balanceOf(address(buyback)), 0);
+    }
+
+    // ─── Rescue ───────────────────────────────────────────────────────────────
+
+    function test_rescue_onlyTheSafeAfterTheDelay() public {
+        quote.mint(address(buyback), 1_000e18);
+
+        vm.expectRevert(ToshBuybackV31.OnlyRescuer.selector);
+        buyback.requestRescue(address(quote), address(this));
+
+        vm.prank(RESCUER);
+        buyback.requestRescue(address(quote), address(0xCAFE));
+        (address token, address to, uint64 readyAt) = buyback.pendingRescue();
+        assertEq(token, address(quote));
+        assertEq(to, address(0xCAFE));
+        assertEq(readyAt, block.timestamp + 72 hours);
+
+        vm.prank(RESCUER);
+        vm.expectRevert(ToshBuybackV31.RescueNotReady.selector);
+        buyback.executeRescue();
+
+        vm.warp(block.timestamp + 72 hours);
+        vm.expectRevert(ToshBuybackV31.OnlyRescuer.selector);
+        buyback.executeRescue();
+
+        quote.mint(address(buyback), 1e18); // what is held at execution goes
+        vm.prank(RESCUER);
+        assertEq(buyback.executeRescue(), 1_001e18);
+        assertEq(quote.balanceOf(address(0xCAFE)), 1_001e18);
+        assertEq(quote.balanceOf(address(buyback)), 0);
+
+        vm.prank(RESCUER);
+        vm.expectRevert(ToshBuybackV31.NoRescuePending.selector);
+        buyback.executeRescue();
+    }
+
+    function test_rescue_cancelled() public {
+        wbnb.mint(address(buyback), 1e18);
+        vm.startPrank(RESCUER);
+        buyback.requestRescue(address(wbnb), address(0xCAFE));
+        buyback.cancelRescue();
+        vm.warp(block.timestamp + 72 hours);
+        vm.expectRevert(ToshBuybackV31.NoRescuePending.selector);
+        buyback.executeRescue();
+        vm.expectRevert(ToshBuybackV31.NoRescuePending.selector);
+        buyback.cancelRescue();
+        vm.stopPrank();
+        assertEq(wbnb.balanceOf(address(buyback)), 1e18);
+    }
+
+    function test_rescue_needsARescuer() public {
+        vm.expectRevert(ToshBuybackV31.ZeroAddress.selector);
+        new ToshBuybackV31(
+            address(poolManager),
+            address(vault),
+            address(quote),
+            address(wbnb),
+            address(pair),
+            address(feed),
+            address(toshHook),
+            STEP,
+            address(0)
+        );
     }
 
     function test_poke_convertsWhenTheBurnLegCannotRun() public {

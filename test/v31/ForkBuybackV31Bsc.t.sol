@@ -30,7 +30,15 @@ contract ForkBuybackV31BscTest is Test {
         (bool ok, bytes memory ret) = POOL_MANAGER.staticcall(abi.encodeWithSignature("vault()"));
         require(ok, "vault()");
         buyback = new ToshBuybackV31(
-            POOL_MANAGER, abi.decode(ret, (address)), USDT, WBNB, USDT_WBNB_V2, BNB_USD, TOSH_HOOK, 180e18
+            POOL_MANAGER,
+            abi.decode(ret, (address)),
+            USDT,
+            WBNB,
+            USDT_WBNB_V2,
+            BNB_USD,
+            TOSH_HOOK,
+            180e18,
+            address(this)
         );
     }
 
