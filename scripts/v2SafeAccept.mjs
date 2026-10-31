@@ -13,6 +13,9 @@
  * to `safe-v3-accept-<chainId>.json`; the v3 AutoLps have no owner, so the
  * batch is the same four accepts) for upload in the Safe app (Transaction Builder → drag and drop).
  *
+ * `--tag=v3.1` (`DeployV31.s.sol`) has one USDT factory and no owned
+ * treasury (its buyback has no owner), so that batch is one accept.
+ *
  * `--handoff` appends the optional gateway handoff for each factory:
  * `factory.transferOwnership(gateway)` then `gateway.execute(acceptOwnership())`.
  * After it, listing goes through the gateway's launchers and every other
@@ -34,31 +37,38 @@ const ver = tagArg || (args.includes('--v3') ? 'v3' : 'v2')
 if (!/^v[0-9.]+$/.test(ver)) throw new Error(`--tag: "${ver}" is not a deployment tag like v3.1`)
 const chainId = Number(args.find(a => /^\d+$/.test(a)) ?? 56)
 
-const dep = JSON.parse(readFileSync(`deployments/${ver}-${chainId}.json`, 'utf8'))
-const need = ['bnbFactory', 'bnbTreasury', 'bnbGateway', 'usdtFactory', 'usdtTreasury', 'usdtGateway']
-const a = {}
-for (const k of need) {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(dep[k] ?? '')) throw new Error(`deployments/${ver}-${chainId}.json: bad ${k}`)
-  a[k] = dep[k]
-}
+const file = `deployments/${ver}-${chainId}.json`
+const dep = JSON.parse(readFileSync(file, 'utf8'))
+const isAddr = v => /^0x[0-9a-fA-F]{40}$/.test(v ?? '')
+// v3.1 is one USDT stack whose treasury is the ownerless buyback, so a stack
+// is whatever `<side>Factory` the record names, and a treasury is optional.
+const sides = ['bnb', 'usdt'].filter(s => dep[`${s}Factory`] !== undefined)
+if (sides.length === 0) throw new Error(`${file}: no bnbFactory or usdtFactory`)
+const stacks = sides.map(s => {
+  for (const k of [`${s}Factory`, `${s}Gateway`]) if (!isAddr(dep[k])) throw new Error(`${file}: bad ${k}`)
+  const treasury = dep[`${s}Treasury`]
+  if (treasury !== undefined && !isAddr(treasury)) throw new Error(`${file}: bad ${s}Treasury`)
+  if (treasury === undefined && !isAddr(dep.buyback)) throw new Error(`${file}: ${s} has neither a treasury nor a buyback`)
+  return { factory: dep[`${s}Factory`], gateway: dep[`${s}Gateway`], treasury }
+})
 
 const word = hex => hex.replace(/^0x/, '').toLowerCase().padStart(64, '0')
 const transferTo = addr => TRANSFER + word(addr)
 // execute(bytes): offset 0x20, length 4, selector left-aligned in one word.
 const executeAccept = EXECUTE + word('20') + word('4') + ACCEPT.slice(2).padEnd(64, '0')
 
-const calls = [
-  { to: a.bnbFactory, data: ACCEPT },
-  { to: a.bnbTreasury, data: ACCEPT },
-  { to: a.usdtFactory, data: ACCEPT },
-  { to: a.usdtTreasury, data: ACCEPT },
-]
+const calls = []
+for (const s of stacks) {
+  calls.push({ to: s.factory, data: ACCEPT })
+  if (s.treasury) calls.push({ to: s.treasury, data: ACCEPT })
+}
 if (handoff) {
-  for (const [f, g] of [[a.bnbFactory, a.bnbGateway], [a.usdtFactory, a.usdtGateway]]) {
-    calls.push({ to: f, data: transferTo(g) })
-    calls.push({ to: g, data: executeAccept })
+  for (const s of stacks) {
+    calls.push({ to: s.factory, data: transferTo(s.gateway) })
+    calls.push({ to: s.gateway, data: executeAccept })
   }
 }
+const what = stacks.length === 2 ? 'both factories and treasuries' : 'the factory'
 
 const batch = {
   version: '1.0',
@@ -66,7 +76,7 @@ const batch = {
   createdAt: Date.now(),
   meta: {
     name: `ToshX ${ver}: accept ownership${handoff ? ' + gateway handoff' : ''}`,
-    description: `acceptOwnership on both ${ver} factories and treasuries${handoff ? ', then hand each factory to its gateway' : ''}.`,
+    description: `acceptOwnership on ${what} of ${ver}${handoff ? ', then hand each factory to its gateway' : ''}.`,
   },
   transactions: calls.map(c => ({ to: c.to, value: '0', data: c.data, contractMethod: null, contractInputsValues: null })),
 }
