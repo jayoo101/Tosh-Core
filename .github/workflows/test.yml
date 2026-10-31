@@ -273,7 +273,8 @@ jobs:
           # 500 -> 515: test/v31/Buyback (13) and ForkBuybackV31Bsc (2; return early without BSC_RPC).
           # 515 -> 521: DeployV31 (4) and ForkDeployV31Bsc (2; return early without BSC_RPC).
           # 521 -> 526: L2Mint audit regressions (halt overlap x2, shelf cap floor, claimFor, AutoLp same-block defer).
-          floor=526
+          # 526 -> 532: Buyback audit fixes (pool-manager check, 3 % band, burn-fails-then-convert) and rescue (3).
+          floor=532
 
           read_count() {
             grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'

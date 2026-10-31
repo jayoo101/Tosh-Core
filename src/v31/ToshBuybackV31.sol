@@ -19,11 +19,11 @@ import {SafeERC20} from "../../lib/openzeppelin-contracts/contracts/token/ERC20/
 ///
 ///         It sits in the v3.1 hook's `ladderTreasury` slot, so it receives
 ///         the 1 % cut of every L2 mint and the 0.4 % buy-side swap tax, and
-///         it is poked from `afterSwap` exactly like v3's treasury. Point the
+///         it is poked from `afterSwap` like v3's treasury. Point the
 ///         platform fee recipient here as well and it also receives the
 ///         opening position's pool fees and the launch rounding remainder.
 ///
-///         Two legs, one per poke:
+///         Two legs:
 ///
 ///           1. CONVERT: USDT → WBNB through the PancakeSwap V2 USDT/WBNB
 ///              pair, refused if the fill is more than
@@ -32,16 +32,26 @@ import {SafeERC20} from "../../lib/openzeppelin-contracts/contracts/token/ERC20/
 ///              against that pool's 30-minute TWAP, with every TOSH bought
 ///              sent to 0xdEaD. The TOSH hook charges its 1 % buy tax on it.
 ///
-///         A poke runs the burn leg while the contract holds at least
-///         `MIN_BNB_LEG` WBNB, and the convert leg otherwise. Each leg is also
+///         A swap's piggyback only ever converts. The burn leg runs only from
+///         `pokeBuyback`, inside this contract's own Vault lock: there no
+///         outer locker can add liquidity for the length of the leg to lift
+///         its depth cap, and the leg has the gas a piggyback cannot spare.
+///         A poke tries the burn leg while the contract holds at least
+///         `MIN_BNB_LEG` WBNB and converts when it cannot run. Each leg is
 ///         capped at `MAX_LEG_DEPTH_BPS` of its pool's depth, so a large
 ///         balance is worked off over many pokes rather than in one bite a
 ///         sandwich could profit from.
 ///
-///         No owner, no withdrawal, no rescue: the only ways out are the
-///         V2 pair (for WBNB back to this contract) and the Infinity Vault
-///         (for TOSH to 0xdEaD). The deployer's one power is binding the
-///         factory whose hooks may poke, once.
+///         No owner and no withdrawal. In normal running the only ways out
+///         are the V2 pair (for WBNB back to this contract) and the Infinity
+///         Vault (for TOSH to 0xdEaD). The deployer's one power is binding
+///         the factory whose hooks may poke, once.
+///
+///         The one exception is a rescue, for a dependency that has died (a
+///         retired feed, a drained pair, a dead TOSH pool): the `rescuer`
+///         Safe requests one token's whole balance to one address, and may
+///         execute it only `RESCUE_DELAY` later. The request is public for
+///         that whole wait and can be cancelled.
 contract ToshBuybackV31 {
     using PoolIdLibrary for PoolKey;
     using SafeERC20 for IERC20;
@@ -58,14 +68,16 @@ contract ToshBuybackV31 {
     uint256 public constant MAX_LEG_DEPTH_BPS = 50;
 
     /// @notice How much worse than Chainlink's BNB/USD a convert leg may fill,
-    ///         covering the pair's 0.25 % fee and the leg's own impact.
-    uint256 public constant MAX_ORACLE_DEVIATION_BPS = 200;
+    ///         covering the pair's 0.25 % fee, the leg's own impact and oracle
+    ///         lag. What it leaves beyond those is what a sandwich could take.
+    uint256 public constant MAX_ORACLE_DEVIATION_BPS = 300;
 
     /// @notice Oldest Chainlink answer a convert leg will trust.
     uint256 public constant MAX_ORACLE_AGE = 1 hours;
 
     /// @notice How far below the TOSH pool's TWAP, in sqrt price, a burn leg
-    ///         may push the pool before it stops filling (≈ 19 % in price).
+    ///         may push the pool before it stops filling (TOSH up to ≈ 23 %
+    ///         dearer in price).
     uint256 public constant MAX_BUYBACK_SQRT_DEVIATION_BPS = 1000;
 
     /// @notice How far the TOSH pool's spot may already sit above its TWAP,
@@ -76,6 +88,9 @@ contract ToshBuybackV31 {
     uint256 public constant MIN_BNB_LEG = 0.001 ether;
 
     address public constant DEAD_ADDRESS = 0x000000000000000000000000000000000000dEaD;
+
+    /// @notice Wait between a rescue's request and its execution.
+    uint256 public constant RESCUE_DELAY = 72 hours;
 
     uint256 internal constant BPS = 10_000;
     uint256 internal constant V2_FEE_FACTOR = 9975; // PancakeSwap V2: 0.25 %
@@ -105,6 +120,8 @@ contract ToshBuybackV31 {
     address public immutable toshHook;
     IERC20 public immutable tosh;
     address public immutable deployer;
+    /// @notice The Safe that may request and execute a rescue.
+    address public immutable rescuer;
 
     // ─── State ────────────────────────────────────────────────────────────────
 
@@ -115,12 +132,24 @@ contract ToshBuybackV31 {
     ///         inside a block, so two legs there could share one sandwich.
     uint256 public lastBurnBlock;
 
+    struct Rescue {
+        address token;
+        address to;
+        uint64 readyAt;
+    }
+
+    /// @notice The requested rescue, if any; `readyAt == 0` when none.
+    Rescue public pendingRescue;
+
     // ─── Events / errors ──────────────────────────────────────────────────────
 
     event FactorySet(address indexed factory);
     event Converted(uint256 usdtIn, uint256 wbnbOut);
     event BuybackBurned(uint256 wbnbIn, uint256 toshBurned);
     event LegSkipped(bool burnLeg, uint256 amount);
+    event RescueRequested(address indexed token, address indexed to, uint256 readyAt);
+    event RescueCancelled(address indexed token, address indexed to);
+    event Rescued(address indexed token, address indexed to, uint256 amount);
 
     error ZeroAddress();
     error OnlyDeployer();
@@ -134,11 +163,15 @@ contract ToshBuybackV31 {
     error BadDecimals();
     error BadPair();
     error BadPoolKey();
+    error BadVault();
     error OracleStale();
     error PriceOffOracle();
     error TwapNotMature();
     error SpotAboveTwap();
     error LegAlreadyRanThisBlock();
+    error OnlyRescuer();
+    error NoRescuePending();
+    error RescueNotReady();
 
     constructor(
         address _poolManager,
@@ -148,20 +181,27 @@ contract ToshBuybackV31 {
         address _pair,
         address _bnbUsdFeed,
         address _toshHook,
-        uint256 _triggerStep
+        uint256 _triggerStep,
+        address _rescuer
     ) {
         if (
             _poolManager == address(0) || _vault == address(0) || _usdt == address(0) || _wbnb == address(0)
                 || _pair == address(0) || _bnbUsdFeed == address(0) || _toshHook == address(0) || _triggerStep == 0
+                || _rescuer == address(0)
         ) revert ZeroAddress();
         if (IERC20Metadata(_usdt).decimals() != 18 || IERC20Metadata(_wbnb).decimals() != 18) revert BadDecimals();
+        // A mismatch would fail every burn leg inside its try, for good.
+        if (IPoolManagerVaultV31(_poolManager).vault() != _vault) revert BadVault();
 
         address t0 = IPancakeV2PairV31(_pair).token0();
         address t1 = IPancakeV2PairV31(_pair).token1();
         if (!((t0 == _usdt && t1 == _wbnb) || (t0 == _wbnb && t1 == _usdt))) revert BadPair();
 
         PoolKey memory key = IToshHookV3ViewV31(_toshHook).getPoolKey();
-        if (Currency.unwrap(key.currency0) != _wbnb || address(key.hooks) != _toshHook) revert BadPoolKey();
+        if (
+            Currency.unwrap(key.currency0) != _wbnb || address(key.hooks) != _toshHook
+                || address(key.poolManager) != _poolManager
+        ) revert BadPoolKey();
 
         poolManager = ICLPoolManager(_poolManager);
         vault = IVault(_vault);
@@ -175,6 +215,7 @@ contract ToshBuybackV31 {
         tosh = IERC20(Currency.unwrap(key.currency1));
         TRIGGER_STEP = _triggerStep;
         deployer = msg.sender;
+        rescuer = _rescuer;
     }
 
     /// @notice Bind the v3.1 factory whose hooks may poke. Its hook
@@ -193,19 +234,53 @@ contract ToshBuybackV31 {
         emit FactorySet(factory_);
     }
 
+    // ─── Rescue ───────────────────────────────────────────────────────────────
+
+    /// @notice Ask to send this contract's whole `token` balance to `to`,
+    ///         executable `RESCUE_DELAY` from now. Replaces any pending ask.
+    function requestRescue(address token, address to) external {
+        if (msg.sender != rescuer) revert OnlyRescuer();
+        if (token == address(0) || to == address(0)) revert ZeroAddress();
+        uint256 readyAt = block.timestamp + RESCUE_DELAY;
+        // forge-lint: disable-next-line(unsafe-typecast) — a timestamp plus 72 hours
+        pendingRescue = Rescue({token: token, to: to, readyAt: uint64(readyAt)});
+        emit RescueRequested(token, to, readyAt);
+    }
+
+    function cancelRescue() external {
+        if (msg.sender != rescuer) revert OnlyRescuer();
+        Rescue memory r = pendingRescue;
+        if (r.readyAt == 0) revert NoRescuePending();
+        delete pendingRescue;
+        emit RescueCancelled(r.token, r.to);
+    }
+
+    /// @notice Carry out the pending rescue once its delay has passed. Sends
+    ///         the balance held now, not the one held at the request.
+    function executeRescue() external returns (uint256 amount) {
+        if (msg.sender != rescuer) revert OnlyRescuer();
+        Rescue memory r = pendingRescue;
+        if (r.readyAt == 0) revert NoRescuePending();
+        if (block.timestamp < r.readyAt) revert RescueNotReady();
+        delete pendingRescue;
+        amount = IERC20(r.token).balanceOf(address(this));
+        IERC20(r.token).safeTransfer(r.to, amount);
+        emit Rescued(r.token, r.to, amount);
+    }
+
     // ─── Pokes ────────────────────────────────────────────────────────────────
 
     /// @notice Called by v3.1 hooks from `afterSwap`, inside the swapper's
-    ///         Vault lock. Never reverts on a "not ready" condition.
+    ///         Vault lock. Converts only. Never reverts on a "not ready"
+    ///         condition.
     function autoPiggybackBuyback() external {
         address f = factory;
         if (f == address(0) || !IToshFactoryV31Registry(f).registeredHooks(msg.sender)) revert OnlyHook();
-        if (vault.getLocker() == address(0)) return;
-        _run();
+        _run(false);
     }
 
     /// @notice Run one leg without riding a swap. Permissionless: the caller
-    ///         chooses nothing but the moment.
+    ///         chooses nothing but the moment. The only way the burn leg runs.
     function pokeBuyback() external {
         if (piggybackActive()) revert PiggybackInProgress();
         (, uint256 amount) = nextLeg();
@@ -215,7 +290,7 @@ contract ToshBuybackV31 {
 
     function lockAcquired(bytes calldata) external returns (bytes memory) {
         if (msg.sender != address(vault)) revert OnlyVault();
-        _run();
+        _run(true);
         return "";
     }
 
@@ -226,22 +301,24 @@ contract ToshBuybackV31 {
         else _convertLeg(amount);
     }
 
-    function _run() internal {
+    /// @dev `ownLock` is true only inside this contract's own Vault lock. A
+    ///      burn leg that cannot run falls through to a convert, so a stuck
+    ///      TOSH pool never holds the USDT up as well.
+    function _run(bool ownLock) internal {
         if (piggybackActive()) return;
-        (bool burnLeg, uint256 amount) = nextLeg();
-        if (amount == 0) return;
-        if (burnLeg) {
-            // A leg's own `sync` would overwrite one an outer frame has not
-            // settled yet. Wait for a cleaner moment instead.
-            try vault.getVaultReserve() returns (Currency synced, uint256) {
-                if (Currency.unwrap(synced) != address(0)) return;
-            } catch {
-                return;
-            }
+        if (ownLock) {
+            uint256 bnb = wbnb.balanceOf(address(this));
+            if (bnb >= MIN_BNB_LEG && _leg(true, bnb)) return;
         }
+        uint256 amount = _convertAmount();
+        if (amount != 0) _leg(false, amount);
+    }
+
+    function _leg(bool burnLeg, uint256 amount) private returns (bool ran) {
         _setPiggyback(true);
-        try this.executeLeg(burnLeg, amount) {}
-        catch {
+        try this.executeLeg(burnLeg, amount) {
+            ran = true;
+        } catch {
             emit LegSkipped(burnLeg, amount);
         }
         _setPiggyback(false);
@@ -330,14 +407,18 @@ contract ToshBuybackV31 {
         }
     }
 
-    /// @notice What the next poke would do: the burn leg with the WBNB held,
-    ///         or the convert leg with `max(TRIGGER_STEP, USDT × SPEND_BPS)`,
-    ///         before the depth caps. Zero when unarmed.
+    /// @notice What the next poke tries first: the burn leg with the WBNB
+    ///         held, or the convert leg with `max(TRIGGER_STEP, USDT ×
+    ///         SPEND_BPS)`, before the depth caps. Zero when unarmed.
     function nextLeg() public view returns (bool burnLeg, uint256 amount) {
         uint256 bnb = wbnb.balanceOf(address(this));
         if (bnb >= MIN_BNB_LEG) return (true, bnb);
+        return (false, _convertAmount());
+    }
+
+    function _convertAmount() internal view returns (uint256 amount) {
         uint256 bal = usdt.balanceOf(address(this));
-        if (bal < TRIGGER_STEP) return (false, 0);
+        if (bal < TRIGGER_STEP) return 0;
         amount = (bal * SPEND_BPS) / BPS;
         if (amount < TRIGGER_STEP) amount = TRIGGER_STEP;
     }
@@ -362,6 +443,10 @@ interface IPancakeV2PairV31 {
     function token1() external view returns (address);
     function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast);
     function swap(uint256 amount0Out, uint256 amount1Out, address to, bytes calldata data) external;
+}
+
+interface IPoolManagerVaultV31 {
+    function vault() external view returns (address);
 }
 
 interface IChainlinkFeedV31 {

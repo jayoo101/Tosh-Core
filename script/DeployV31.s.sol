@@ -195,8 +195,9 @@ contract DeployV31 is Script {
         ToshBidBook book = new ToshBidBook(e.feeRecipient);
         s.bidBook = address(book);
         s.lens = address(new ToshHookLensV31());
-        ToshBuybackV31 buyback =
-            new ToshBuybackV31(e.poolManager, e.vault, e.usdt, e.wbnb, e.pair, e.feed, e.toshHook, p.triggerStep);
+        ToshBuybackV31 buyback = new ToshBuybackV31(
+            e.poolManager, e.vault, e.usdt, e.wbnb, e.pair, e.feed, e.toshHook, p.triggerStep, e.safe
+        );
         s.buyback = address(buyback);
         ToshAutoLp autoLp = new ToshAutoLp(e.vault, e.poolManager);
         s.autoLp = address(autoLp);
@@ -266,6 +267,7 @@ contract DeployV31 is Script {
         require(f.ladderTreasury() == s.buyback && f.platformTreasury() == s.buyback, "factory -> buyback");
         require(f.bidBook() == s.bidBook, "factory -> book");
         require(ToshBuybackV31(s.buyback).factory() == s.factory, "buyback -> factory");
+        require(ToshBuybackV31(s.buyback).rescuer() == e.safe, "buyback rescuer -> safe");
         require(ToshAutoLp(s.autoLp).factory() == s.factory, "autoLp -> factory");
         require(ToshMintVesting(s.vesting).factory() == s.factory, "vesting -> factory");
         require(ToshBidBook(s.bidBook).initialized(), "book initialized");

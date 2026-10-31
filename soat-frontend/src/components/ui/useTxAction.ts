@@ -43,6 +43,8 @@ export interface TxRequest {
   args?: readonly unknown[]
   /** Payable calls only; the widened ABI cannot prove that for you. */
   value?: bigint
+  /** Gas limit, for calls whose estimate is too tight for an inner try/catch. */
+  gas?: bigint
 }
 
 export interface TxActionOptions {
