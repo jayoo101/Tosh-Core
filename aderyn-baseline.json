@@ -1631,7 +1631,7 @@
       "impact": "High",
       "file": "src/v31/ToshFactoryV31.sol",
       "scope": "ToshFactoryV31.haltLadderMinting",
-      "count": 1
+      "count": 3
     },
     {
       "check": "unsafe-casting",
