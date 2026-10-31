@@ -11,7 +11,7 @@ import {
 import { fill, useT } from '@/i18n'
 import { NATIVE_SYMBOL, TARGET_CHAIN_ID } from '@/lib/chain'
 import { V2_FACTORY_ABI, V2_GATEWAY_ABI } from '@/lib/v2/abis'
-import { V2_ENABLED, V2_FACTORY_BNB, V2_FACTORY_USDT } from '@/lib/v2/config'
+import { V2_ENABLED, V2_FACTORY_BNB, V2_FACTORY_USDT, V31_FACTORY } from '@/lib/v2/config'
 import { fmtSig, parseAmount } from './fmt'
 import { ProjectInfoPanel } from './ProjectInfoPanel'
 
@@ -45,7 +45,7 @@ function checksummed(raw: string): Address | undefined {
   }
 }
 
-type Stack = 'bnb' | 'usdt'
+type Stack = 'bnb' | 'usdt' | 'v31'
 
 /**
  * The factory owner's v2 `createLaunch`. Sends it from a connected owner
@@ -58,7 +58,7 @@ type Stack = 'bnb' | 'usdt'
 export function V2LaunchForm() {
   const t = useT().v2
   const { address } = useAccount()
-  const [stack, setStack] = useState<Stack>(V2_FACTORY_BNB ? 'bnb' : 'usdt')
+  const [stack, setStack] = useState<Stack>(V2_FACTORY_BNB ? 'bnb' : V2_FACTORY_USDT ? 'usdt' : 'v31')
   const [name, setName] = useState('')
   const [symbol, setSymbol] = useState('')
   const [developer, setDeveloper] = useState('')
@@ -70,7 +70,8 @@ export function V2LaunchForm() {
   // Drawn on first use, not during render, where server and browser would draw different ones.
   const saltRef = useRef<Hex | null>(null)
 
-  const factory = stack === 'bnb' ? V2_FACTORY_BNB : V2_FACTORY_USDT
+  // v3.1's factory and gateway take the same `createLaunch` as v3's.
+  const factory = stack === 'bnb' ? V2_FACTORY_BNB : stack === 'usdt' ? V2_FACTORY_USDT : V31_FACTORY
   const unit = stack === 'bnb' ? NATIVE_SYMBOL : 'USDT'
   const { data } = useReadContracts({
     contracts: factory
@@ -144,7 +145,7 @@ export function V2LaunchForm() {
       `toshx-v2-createLaunch-${symbol.trim() || 'token'}.json`)
   }
 
-  if (!V2_ENABLED || (!V2_FACTORY_BNB && !V2_FACTORY_USDT)) {
+  if (!V2_ENABLED || (!V2_FACTORY_BNB && !V2_FACTORY_USDT && !V31_FACTORY)) {
     return <Card><p className="text-note text-text-secondary">{t.notDeployed}</p></Card>
   }
 
@@ -155,7 +156,9 @@ export function V2LaunchForm() {
         <div className="flex gap-2">
           {V2_FACTORY_BNB && <Button size="sm" variant={stack === 'bnb' ? 'primary' : 'ghost'} label={NATIVE_SYMBOL} onClick={() => setStack('bnb')} />}
           {V2_FACTORY_USDT && <Button size="sm" variant={stack === 'usdt' ? 'primary' : 'ghost'} label="USDT" onClick={() => setStack('usdt')} />}
+          {V31_FACTORY && <Button size="sm" variant={stack === 'v31' ? 'primary' : 'ghost'} label={t.lfStackV31} onClick={() => setStack('v31')} />}
         </div>
+        {stack === 'v31' && <p className="text-note text-text-secondary">{t.lfV31Note}</p>}
         <Field label={t.lfName} value={name} onValueChange={setName} />
         <Field label={t.lfSymbol} value={symbol} onValueChange={setSymbol} />
         <Field label={t.lfDeveloper} value={developer} onValueChange={setDeveloper} placeholder="0x…" hint={t.lfDeveloperHint} />
