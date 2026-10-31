@@ -41,6 +41,25 @@ export const HALT_GATEWAY_ABI = parseAbi([
   'function renewAll()',
 ])
 export const HALT_UNTIL_ABI = parseAbi(['function hookLadderHaltedUntil(address) view returns (uint256)'])
+export const V31_FACTORY_ABI = parseAbi([
+  'function launchCount() view returns (uint256)',
+  'function launches(uint256) view returns (address token, address hook, address creator, uint256 createdAt)',
+  'function hookImplementation() view returns (address)',
+])
+export const V31_BUYBACK_ABI = parseAbi([
+  'function rescuer() view returns (address)',
+  'function pendingRescue() view returns (address token, address to, uint64 readyAt)',
+  'function nextLeg() view returns (bool burnLeg, uint256 amount)',
+  'function pokeBuyback()',
+])
+export const V31_AUTOLP_ABI = parseAbi([
+  'function pendingQuote(address) view returns (uint256)',
+  'function flush(address)',
+])
+const AUTOLP_OF_ABI = parseAbi(['function autoLp() view returns (address)'])
+
+/** Most recent v3.1 launches the keeper looks at for an AutoLp backlog. */
+const UPKEEP_HOOKS = 200n
 
 /** A permanent halt younger than this is left alone; older, the keeper renews it. */
 export const RENEW_AFTER = 24n * 3600n
@@ -67,8 +86,11 @@ const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`
 
 export interface Targets {
+  /** v3-shaped factories: Safe-owned ladder treasury, Safe platform fees, the shared BidBook. */
   factories: Address[]
   bidBook: Address | undefined
+  /** The v3.1 factory, whose treasury and fee recipient are the ownerless buyback. */
+  v31Factory?: Address
 }
 
 export interface PermanentHalt {
@@ -99,6 +121,37 @@ export async function permanentHalts(read: Reader, factories: Address[]): Promis
 export function gatewaysToRenew(halts: PermanentHalt[], now: bigint): Address[] {
   const due = halts.filter(h => h.until < now + HALT_WINDOW - RENEW_AFTER).map(h => getAddress(h.gateway))
   return [...new Set(due)]
+}
+
+export interface V31Upkeep {
+  /** The buyback, when a poke would run a leg; `null` when it is not armed. */
+  buyback: Address | null
+  autoLp: Address
+  /** Hooks whose pool AutoLp still owes liquidity. */
+  flush: Address[]
+}
+
+/**
+ * What the keeper should try on v3.1. Swaps only ever convert the buyback's
+ * USDT, so its burn leg runs only when poked, and AutoLp liquidity a mint
+ * could not add waits for a `flush`. Both are open to anyone.
+ */
+export async function v31Upkeep(read: Reader, factory: Address): Promise<V31Upkeep> {
+  const [buyback, impl, count] = await Promise.all([
+    read<Address>(factory, FACTORY_ABI, 'ladderTreasury'),
+    read<Address>(factory, V31_FACTORY_ABI, 'hookImplementation'),
+    read<bigint>(factory, V31_FACTORY_ABI, 'launchCount'),
+  ])
+  const [[, amount], autoLp] = await Promise.all([
+    read<readonly [boolean, bigint]>(buyback, V31_BUYBACK_ABI, 'nextLeg'),
+    read<Address>(impl, AUTOLP_OF_ABI, 'autoLp'),
+  ])
+  const flush: Address[] = []
+  for (let i = count > UPKEEP_HOOKS ? count - UPKEEP_HOOKS : 0n; i < count; i++) {
+    const [, hook] = await read<readonly [Address, Address, Address, bigint]>(factory, V31_FACTORY_ABI, 'launches', [i])
+    if ((await read<bigint>(autoLp, V31_AUTOLP_ABI, 'pendingQuote', [hook])) > 0n) flush.push(hook)
+  }
+  return { buyback: amount > 0n ? buyback : null, autoLp, flush }
 }
 
 export async function runChecks(
@@ -174,8 +227,54 @@ export async function runChecks(
     })
   }
 
+  const v31 = targets.v31Factory
+  if (v31) {
+    await guard(`v31:${v31}`, `v3.1 factory ${short(v31)}`, async () => {
+      const [owner, pending, paused, buyback, platform, book] = await Promise.all([
+        read<Address>(v31, FACTORY_ABI, 'owner'),
+        read<Address>(v31, FACTORY_ABI, 'pendingOwner'),
+        read<boolean>(v31, FACTORY_ABI, 'paused'),
+        read<Address>(v31, FACTORY_ABI, 'ladderTreasury'),
+        read<Address>(v31, FACTORY_ABI, 'platformTreasury'),
+        read<Address>(v31, FACTORY_ABI, 'bidBook'),
+      ])
+      const [gatewaySafe, rescuer, rescue, bookFees] = await Promise.all([
+        read<Address>(owner, GATEWAY_ABI, 'safe').catch(() => null),
+        read<Address>(buyback, V31_BUYBACK_ABI, 'rescuer'),
+        read<readonly [Address, Address, bigint]>(buyback, V31_BUYBACK_ABI, 'pendingRescue'),
+        read<Address>(book, BIDBOOK_ABI, 'feeRecipient'),
+      ])
+      const f = short(v31)
+      const b = short(buyback)
+      if (!gatewaySafe || !same(gatewaySafe, OWNER_SAFE)) {
+        flag(`owner:${v31}`, `🚨 v3.1 factory ${f} 的所有者现在是 ${getAddress(owner)}，不是 Safe 的发射网关`)
+      }
+      if (!same(pending, '0x0000000000000000000000000000000000000000')) {
+        flag(`pending:${v31}`, `🚨 v3.1 factory ${f} 有一笔待接受的所有权转移，接收方 ${getAddress(pending)}`)
+      }
+      if (paused) flag(`paused:${v31}`, `⏸️ v3.1 factory ${f} 处于暂停状态，新项目无法创建`)
+      if (!same(platform, buyback)) {
+        flag(`platform:${v31}`, `🚨 v3.1 factory ${f} 的平台收款地址 ${getAddress(platform)} 不是回购合约 ${getAddress(buyback)}`)
+      }
+      if (!same(rescuer, OWNER_SAFE)) {
+        flag(`rescuer:${buyback}`, `🚨 回购合约 ${b} 的救援人是 ${getAddress(rescuer)}，不是 Safe`)
+      }
+      const [token, to, readyAt] = rescue
+      if (readyAt > 0n) {
+        flag(
+          `rescue:${buyback}:${readyAt}`,
+          `🚨 回购合约 ${b} 有一笔救援请求：把全部 ${getAddress(token)} 转给 ${getAddress(to)}，` +
+            `${new Date(Number(readyAt) * 1000).toISOString()} 起可执行。不是你们发起的，立刻用 Safe 调用 cancelRescue()。`,
+        )
+      }
+      if (!same(bookFees, OWNER_SAFE)) {
+        flag(`book:${v31}`, `🚨 v3.1 挂单合约 ${short(book)} 的手续费收款地址变了：现在是 ${getAddress(bookFees)}`)
+      }
+    })
+  }
+
   await guard('halts', '永久暂停的货架', async () => {
-    for (const h of await permanentHalts(read, targets.factories)) {
+    for (const h of await permanentHalts(read, v31 ? [...targets.factories, v31] : targets.factories)) {
       const left = h.until - now
       if (left <= 0n) {
         flag(`halt-lapsed:${h.hook}`, `🚨 项目 ${short(h.hook)} 的永久暂停没人续期，已经失效，货架现在可以铸币。任何钱包调用网关 ${getAddress(h.gateway)} 的 renewAll() 即可恢复。`)

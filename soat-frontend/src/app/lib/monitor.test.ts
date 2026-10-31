@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { getAddress, type Address } from 'viem'
 
-import { OWNER_SAFE, SAFE_OWNERS, gatewaysToRenew, permanentHalts, runChecks, type Reader } from './monitor'
+import { OWNER_SAFE, SAFE_OWNERS, gatewaysToRenew, permanentHalts, runChecks, v31Upkeep, type Reader } from './monitor'
 
 const FACTORY: Address = '0x091d0cBD1e3B7D8b2a6fd8e0795b784EdDFfb590'
 const GATEWAY: Address = '0x790091e8965eCc1adfA40AA9b95515C6289dCE9d'
@@ -103,5 +103,60 @@ describe('permanent shelf halts', () => {
     expect(gatewaysToRenew(fresh6d, NOW)).toEqual([])
     const armedYesterday = await permanentHalts(halted(NOW + 6n * DAY - 1n), [FACTORY])
     expect(gatewaysToRenew(armedYesterday, NOW)).toEqual([getAddress(GATEWAY_V3)])
+  })
+})
+
+describe('v3.1', () => {
+  const V31: Address = '0x00000000000000000000000000000000000031F1'
+  const BUYBACK: Address = '0x000000000000000000000000000000000000B0B0'
+  const BOOK31: Address = '0x000000000000000000000000000000000000B00C'
+  const IMPL: Address = '0x0000000000000000000000000000000000001A11'
+  const AUTOLP: Address = '0x000000000000000000000000000000000000A170'
+  const HOOK_A: Address = '0x000000000000000000000000000000000000AAAA'
+  const HOOK_B: Address = '0x000000000000000000000000000000000000BBBB'
+
+  const chain31 = (overrides: Record<string, unknown> = {}) => chain({
+    [`${V31}:owner`]: GATEWAY,
+    [`${V31}:pendingOwner`]: ZERO,
+    [`${V31}:paused`]: false,
+    [`${V31}:ladderTreasury`]: BUYBACK,
+    [`${V31}:platformTreasury`]: BUYBACK,
+    [`${V31}:bidBook`]: BOOK31,
+    [`${V31}:hookImplementation`]: IMPL,
+    [`${V31}:launchCount`]: 2n,
+    [`${V31}:launches:0`]: [ZERO, HOOK_A, ZERO, 0n],
+    [`${V31}:launches:1`]: [ZERO, HOOK_B, ZERO, 0n],
+    [`${IMPL}:autoLp`]: AUTOLP,
+    [`${AUTOLP}:pendingQuote:${HOOK_A}`]: 0n,
+    [`${AUTOLP}:pendingQuote:${HOOK_B}`]: 64n * 10n ** 18n,
+    [`${BUYBACK}:rescuer`]: OWNER_SAFE,
+    [`${BUYBACK}:pendingRescue`]: [ZERO, ZERO, 0n],
+    [`${BUYBACK}:nextLeg`]: [false, 0n],
+    [`${BOOK31}:feeRecipient`]: OWNER_SAFE,
+    ...overrides,
+  })
+  const ids31 = async (read: Reader) =>
+    (await runChecks(read, { ...targets, v31Factory: V31 }, fresh)).map(a => a.id)
+
+  it('a buyback treasury and its own BidBook are the expected v3.1 shape, not alerts', async () => {
+    expect(await ids31(chain31())).toEqual(['safe-nonce:18'])
+  })
+
+  it('a rescue request is alerted, once per request', async () => {
+    const asked = chain31({ [`${BUYBACK}:pendingRescue`]: [BOOK31, EVIL, 1_900_000_000n] })
+    expect(await ids31(asked)).toContain(`rescue:${BUYBACK}:1900000000`)
+  })
+
+  it('flags a rescuer, fee recipient or book that is not the Safe', async () => {
+    expect(await ids31(chain31({ [`${BUYBACK}:rescuer`]: EVIL }))).toContain(`rescuer:${BUYBACK}`)
+    expect(await ids31(chain31({ [`${V31}:platformTreasury`]: EVIL }))).toContain(`platform:${V31}`)
+    expect(await ids31(chain31({ [`${BOOK31}:feeRecipient`]: EVIL }))).toContain(`book:${V31}`)
+    expect(await ids31(chain31({ [`${V31}:owner`]: EVIL }))).toContain(`owner:${V31}`)
+  })
+
+  it('upkeep pokes an armed buyback and flushes only the pools AutoLp still owes', async () => {
+    expect(await v31Upkeep(chain31(), V31)).toEqual({ buyback: null, autoLp: AUTOLP, flush: [HOOK_B] })
+    const armed = chain31({ [`${BUYBACK}:nextLeg`]: [true, 10n ** 16n] })
+    expect((await v31Upkeep(armed, V31)).buyback).toBe(BUYBACK)
   })
 })
