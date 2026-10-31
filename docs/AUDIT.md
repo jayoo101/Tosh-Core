@@ -10,7 +10,7 @@ firing without somebody deciding about it. Neither gate is advisory.
 | Baseline | `slither-baseline.json` | `aderyn-baseline.json` |
 | Gate | `scripts/checkSlitherFindings.mjs` | `scripts/checkAderynFindings.mjs` |
 | Scope | `src/` (`--filter-paths lib/\|test/\|script/`) | `src/` (inferred from `foundry.toml`) |
-| Current | 255 findings, 2H/93M/84L/76I | 393 findings, 85H/308L |
+| Current | 255 findings, 2H/93M/84L/76I | 395 findings, 87H/308L |
 | Runtime | ~15 s, plus a slower `pip install` | ~6 s, no compile of its own |
 
 The current counts include `src/v3/`: the token, hook, factory and lens now
@@ -266,14 +266,14 @@ more, all of a shape v3's `ToshLadderTreasury` already carries:
 
 ## Aderyn disposition record
 
-23 detectors, 393 instances, all triaged, nothing unresolved.
+23 detectors, 395 instances, all triaged, nothing unresolved.
 
-`src/v31/` adds six source units (27 in all) and 92 instances. 84 are at the
+`src/v31/` adds six source units (27 in all) and 94 instances. 85 are at the
 v3.1 copy of a v3 site below, with the same disposition, or are the
 file-level pragma and `PUSH0` notes on the new files. The v3.1 hook's private
-interfaces carry a V31 suffix so they do not reuse the v3 names. The other 8:
-`unsafe-casting` ×7 (the L2 curve and idle-burn slots and the factory's halt
-clock, below) and `missing-inheritance` on `ToshMintVesting`, which matches
+interfaces carry a V31 suffix so they do not reuse the v3 names. The other 9:
+`unsafe-casting` ×8 (the L2 curve and idle-burn slots, the factory's halt
+clock and the buyback's rescue timelock, below) and `missing-inheritance` on `ToshMintVesting`, which matches
 the factory without importing it. The new `reentrancy-state-change` sites
 sit in `launch` and `mintL2`, which read the factory's
 `ladderHaltedSeconds()` and the pure `l2Quote()` before writing the curve,
@@ -358,9 +358,10 @@ encoding. The code already handles the one real version of this concern: the
 silent truncation cannot make two different caps or durations produce the same
 initcode hash.
 
-**`reentrancy-state-change`** — 71, in three groups, none reachable. The
-groups below count the 49 outside `src/v31/`; of the 22 there, 6 are
-`ToshBuybackV31`'s (above) and 16 are the v3.1 copies
+**`reentrancy-state-change`** — 72, in three groups, none reachable. The
+groups below count the 49 outside `src/v31/`; of the 23 there, 7 are
+`ToshBuybackV31`'s (above; its constructor's view reads of the vault, the
+manager and the TOSH pool key run before anyone can call in) and 16 are the v3.1 copies
 of the hook's `launch`, `buyGenesis` and constructor sites and the factory's
 `createLaunch`, constructor and `releaseAbandonedName`, one more in `launch`
 and one in `mintL2` (the halt-clock read and the factory's pure `l2Quote`,
@@ -390,7 +391,7 @@ permissionless and takes an address argument: its first statement is
 `if (!registeredHooks[hook]) revert HookNotRegistered()`, so the callee is
 always a clone this factory deployed, never caller-supplied code.
 
-**`unsafe-casting`** — 8. One is `ToshLadderTreasury._buybackSqrtFloor`. Cannot
+**`unsafe-casting`** — 9. One is `ToshLadderTreasury._buybackSqrtFloor`. Cannot
 truncate. The cast is `uint160(floor)` where
 `floor = twapSqrt × (BPS_DENOMINATOR − MAX_BUYBACK_SQRT_DEVIATION_BPS) /
 BPS_DENOMINATOR`, `twapSqrt` is already `uint160`, and both constants are
@@ -410,6 +411,9 @@ The last three are in `ToshFactoryV31.haltLadderMinting`, which stores the
 per-hook and global halt clocks as `uint64` timestamps and a `uint128` running
 total: `until` is now plus at most `MAX_HALT_DURATION`, and the total can grow
 by at most the seconds that have passed since deployment.
+
+`ToshBuybackV31.requestRescue` stores `readyAt` as a `uint64`: it is
+`block.timestamp + RESCUE_DELAY` (72 hours), a timestamp.
 
 ### Low
 

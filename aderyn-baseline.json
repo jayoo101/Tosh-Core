@@ -6,9 +6,9 @@
   "sourceUnits": 28,
   "sloc": 6016,
   "detectorsRun": 88,
-  "total": 391,
+  "total": 395,
   "byImpact": {
-    "High": 83,
+    "High": 87,
     "Low": 308
   },
   "byCheck": {
@@ -23,12 +23,12 @@
     "modifier-used-only-once": 11,
     "non-reentrant-not-first": 12,
     "push-zero-opcode": 28,
-    "reentrancy-state-change": 71,
+    "reentrancy-state-change": 72,
     "require-revert-in-loop": 10,
     "tx-origin-used-for-auth": 3,
     "unchecked-return": 20,
     "uninitialized-local-variable": 6,
-    "unsafe-casting": 6,
+    "unsafe-casting": 9,
     "unsafe-erc20-operation": 3,
     "unsafe-oz-erc721-mint": 1,
     "unspecific-solidity-pragma": 21,
@@ -1295,7 +1295,7 @@
       "impact": "High",
       "file": "src/v31/ToshBuybackV31.sol",
       "scope": "ToshBuybackV31.constructor",
-      "count": 5
+      "count": 6
     },
     {
       "check": "reentrancy-state-change",
@@ -1624,6 +1624,13 @@
       "impact": "High",
       "file": "src/ToshLadderTreasury.sol",
       "scope": "ToshLadderTreasury._buybackSqrtFloor",
+      "count": 1
+    },
+    {
+      "check": "unsafe-casting",
+      "impact": "High",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31.requestRescue",
       "count": 1
     },
     {
