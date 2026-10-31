@@ -10,7 +10,7 @@ firing without somebody deciding about it. Neither gate is advisory.
 | Baseline | `slither-baseline.json` | `aderyn-baseline.json` |
 | Gate | `scripts/checkSlitherFindings.mjs` | `scripts/checkAderynFindings.mjs` |
 | Scope | `src/` (`--filter-paths lib/\|test/\|script/`) | `src/` (inferred from `foundry.toml`) |
-| Current | 230 findings, 2H/81M/75L/72I | 371 findings, 74H/297L |
+| Current | 231 findings, 2H/81M/75L/73I | 374 findings, 77H/297L |
 | Runtime | ~15 s, plus a slower `pip install` | ~6 s, no compile of its own |
 
 The current counts include `src/v3/`: the token, hook, factory and lens now
@@ -204,7 +204,7 @@ The last 9 are `ToshLaunchGatewayV3`, the gateway plus a permanent shelf halt:
 
 ### Slither: v3.1 (`src/v31/`, not deployed)
 
-46 findings: 230 against 184 before. 34 sit at the v3.1 copy of a v3 site
+47 findings: 231 against 184 before. 34 sit at the v3.1 copy of a v3 site
 above with the same disposition: the third `tx-origin`
 (`ToshTokenV31._update`), the hook's `uninitialized-local` and
 `unused-return` set, the factory's `createLaunch` reentrancy findings, the
@@ -218,43 +218,45 @@ the v3 functions, and Slither reports their `weak-prng` and `timestamp`
 findings once, on the v3 copy, rather than again under `src/v31/`. The same
 identity runs the other way for `_sqrt`, which it calls dead code in the v3.1
 hook although `launch` reaches it through `_toSqrtPriceX96`, exactly as in v3.
-The dispositions above cover both copies. The other 12 are new:
+The dispositions above cover both copies. The other 13 are new:
 
-- **`timestamp`** — `l2Price`, `ToshFactoryV31._haltedSeconds` and
+- **`timestamp`** — the hook's `_idle`, `ToshFactoryV31._haltedSeconds` and
   `ToshMintVesting._vested` / `claim`. The L2 price falls 0.1 % per whole
-  unhalted minute since the last mint, the factory counts halted seconds, and
-  vesting releases 1/720 per whole minute. Validator skew of seconds moves at
-  most one step, which nobody can hold.
+  unhalted minute since the last mint and S / 1008 of the shelf burns per
+  whole unhalted 10 minutes, the factory counts halted seconds, and vesting
+  releases 1/480 per whole minute. Validator skew of seconds moves at most
+  one step, which nobody can hold.
 - **`divide-before-multiply`** — `ToshMintVesting._vested` floors the elapsed
-  time to whole minutes before scaling the total. That is the schedule: a
-  step unlocks only when its minute is complete.
+  time to whole minutes before scaling the total, and the hook's `_burnDue`
+  floors idle time to whole 10-minute periods and multiplies by the fixed
+  per-period burn `l2Supply / 1008`. That is the schedule in both: a step
+  counts only when it is complete, and the burn per period is the same
+  number every time. The last period takes whatever rounding left.
 - **`incorrect-equality`** — `ToshMintVesting.claim` (`amount == 0`). A zero
   check that refuses an empty claim.
-- **`unused-return`** — `ToshHookLensV31.quoteL2` reads only `minted` from
-  the hook's `l2State`; the price comes from `l2Price`, which applies the
-  decay and the halt clock.
 - **`missing-inheritance`** — `ToshFactoryV31`, `ToshLaunchpadHookV31` and
   `ToshMintVesting` each match an interface declared elsewhere without
   importing it, the same shape as v3.
-- **`cyclomatic-complexity`** — `buyGenesis`, as in v2 and v3.
+- **`cyclomatic-complexity`** — `buyGenesis`, as in v2 and v3, and
+  `mintL2`, whose branches are its guards and the three payment legs.
 - **`dead-code`** — `_sqrt`, explained above.
 
 ## Aderyn disposition record
 
-23 detectors, 371 instances, all triaged, nothing unresolved.
+23 detectors, 374 instances, all triaged, nothing unresolved.
 
-`src/v31/` adds six source units (27 in all) and 87 instances. 83 are at the
+`src/v31/` adds six source units (27 in all) and 90 instances. 84 are at the
 v3.1 copy of a v3 site below, with the same disposition, or are the
 file-level pragma and `PUSH0` notes on the new files. The v3.1 hook's private
-interfaces carry a V31 suffix so they do not reuse the v3 names. The other 4:
-`unsafe-casting` ×3 (the L2 curve slot and the factory's halt clock, below)
-and `missing-inheritance` on `ToshMintVesting`, which matches the factory
-without importing it. `mintL2` writes the curve before its one factory call,
-so like `mintBondingCurve` it has no `reentrancy-state-change`; the new ones
-sit in `launch`, which reads the factory's `ladderHaltedSeconds()` once the
-pool is seeded, and in `ToshMintVesting.lock` and `setFactory`, which only
-call `registeredHooks()` and `hookImplementation().mintVesting()`. All are
-views.
+interfaces carry a V31 suffix so they do not reuse the v3 names. The other 6:
+`unsafe-casting` ×5 (the L2 curve and idle-burn slots and the factory's halt
+clock, below) and `missing-inheritance` on `ToshMintVesting`, which matches
+the factory without importing it. The new `reentrancy-state-change` sites
+sit in `launch` and `mintL2`, which read the factory's
+`ladderHaltedSeconds()` and the pure `l2Quote()` before writing the curve,
+and in `ToshMintVesting.lock` and `setFactory`, which only call
+`registeredHooks()` and `hookImplementation().mintVesting()`. All are views
+or pure. The idle burn's own mint to 0xdEaD runs after every write.
 
 Re-baselined on 2026-10-28 against v2. `src/` went from 10 source units to
 14: `ToshBidBook`, `ToshHookLens`, `AgentIdLib`, `WalletLib` and
@@ -324,12 +326,13 @@ encoding. The code already handles the one real version of this concern: the
 silent truncation cannot make two different caps or durations produce the same
 initcode hash.
 
-**`reentrancy-state-change`** — 64, in three groups, none reachable. The
-groups below count the 49 outside `src/v31/`; the 15 there are the v3.1 copies
+**`reentrancy-state-change`** — 65, in three groups, none reachable. The
+groups below count the 49 outside `src/v31/`; the 16 there are the v3.1 copies
 of the hook's `launch`, `buyGenesis` and constructor sites and the factory's
 `createLaunch`, constructor and `releaseAbandonedName`, one more in `launch`
-(the halt-clock read), plus `ToshMintVesting.lock` and `setFactory`, which
-call only views:
+and one in `mintL2` (the halt-clock read and the factory's pure `l2Quote`,
+both under `nonReentrant`), plus `ToshMintVesting.lock` and `setFactory`,
+which call only views:
 
 - 18 are inside `nonReentrant` functions: `ToshBidBook.placeBid` ×5 and
   `fill` ×4, `ToshFactory.createLaunch` ×3, and on the hook `launch` ×4,
@@ -354,19 +357,21 @@ permissionless and takes an address argument: its first statement is
 `if (!registeredHooks[hook]) revert HookNotRegistered()`, so the callee is
 always a clone this factory deployed, never caller-supplied code.
 
-**`unsafe-casting`** — 4. One is `ToshLadderTreasury._buybackSqrtFloor`. Cannot
+**`unsafe-casting`** — 6. One is `ToshLadderTreasury._buybackSqrtFloor`. Cannot
 truncate. The cast is `uint160(floor)` where
 `floor = twapSqrt × (BPS_DENOMINATOR − MAX_BUYBACK_SQRT_DEVIATION_BPS) /
 BPS_DENOMINATOR`, `twapSqrt` is already `uint160`, and both constants are
 `constant` — 10 000 and 1 000 — so the factor is a compile-time 0.9. `floor`
 is strictly smaller than a value that already fits.
 
-Two pack the v3.1 L2 curve into one slot, in `launch` and `mintL2`.
-`price` is a `uint128`: without decay the curve tops out at 247 × p0, decay
-only lowers it, and p0 ≤ 2 × hardCap / 225M, which is about 1.8e14 at the
-20 000 USDT ceiling against 3.4e38. `minted` is a `uint96` and never exceeds
-`l2Supply` ≤ 7.3e26 against 7.9e28. `at` is a `uint32` timestamp, good to
-2106.
+Four pack the v3.1 L2 curve and idle-burn slots, in `launch`, `mintL2` and
+`_settleBurn`. `price` is a `uint128`: without decay the curve tops out at
+247 × p0, decay only lowers it, and p0 ≤ 2 × hardCap / 225M, which is about
+1.8e14 at the 20 000 USDT ceiling against 3.4e38. `minted` and `burned` are
+`uint96` and together never exceed `l2Supply` ≤ 7.3e26 against 7.9e28. `at`
+is a `uint32` timestamp, good to 2106. `haltedAt` is a `uint128` count of
+seconds, and `periods` a `uint32` count of 10-minute periods since the last
+mint, which would take 81 000 years to overflow.
 
 The last is `ToshFactoryV31.haltLadderMinting`, which stores the halt clock as
 `uint64` timestamps and a `uint128` running total: `until` is now plus at most

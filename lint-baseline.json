@@ -124,7 +124,7 @@
     {
       "rule": "block-timestamp",
       "file": "src/v31/ToshLaunchpadHookV31.sol",
-      "text": "if (since > block.timestamp) since = block.timestamp;",
+      "text": "return busy < block.timestamp ? block.timestamp - busy : 0;",
       "count": 1
     },
     {

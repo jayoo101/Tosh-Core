@@ -12,18 +12,23 @@ import {FixedPointMathLib} from "solmate/src/utils/FixedPointMathLib.sol";
 ///
 ///         Paying C at price p mints Δ = ln(1 + kC/p) / k tokens and leaves the
 ///         price at p + kC. While nobody mints, the price falls 0.1 % per whole
-///         minute, with no floor. Prices are quote wei per whole (1e18) token.
+///         minute, with no floor, and every whole 10 minutes supply / 1008
+///         unminted tokens are burned. Prices are quote wei per whole (1e18)
+///         token.
 library L2CurveV31 {
     /// @notice ln(247) in 1e18 fixed point.
     uint256 internal constant LN_SPAN_WAD = 5_509_388_336_627_977_196;
     uint256 internal constant DECAY_INTERVAL = 1 minutes;
     uint256 internal constant DECAY_FACTOR_WAD = 0.999e18;
     uint256 internal constant ONE = 1e18;
+    uint256 internal constant BURN_INTERVAL = 10 minutes;
+    /// @notice 6 · 24 · 7: an idle week burns the whole supply.
+    uint256 internal constant BURN_PERIODS = 1008;
 
-    /// @dev price · 0.999^(whole minutes from `since` to `now_`). Held at
-    ///      1 wei so `quote` never divides by zero.
-    function decayed(uint256 price, uint256 since, uint256 now_) internal pure returns (uint256 p) {
-        uint256 steps = (now_ - since) / DECAY_INTERVAL;
+    /// @dev price · 0.999^(whole minutes in `idle` seconds). Held at 1 wei so
+    ///      `quote` never divides by zero.
+    function decayed(uint256 price, uint256 idle) internal pure returns (uint256 p) {
+        uint256 steps = idle / DECAY_INTERVAL;
         p = FullMath.mulDiv(price, FixedPointMathLib.rpow(DECAY_FACTOR_WAD, steps, ONE), ONE);
         if (p == 0) p = 1;
     }

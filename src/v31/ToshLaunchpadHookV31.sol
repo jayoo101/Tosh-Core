@@ -92,6 +92,12 @@ import {L2CurveV31} from "./libraries/L2CurveV31.sol";
 ///       decayed price — the decay is permanent. Seconds covered by the
 ///       factory's ladder halt do not count toward it.
 ///
+///     • AN IDLE BURN beside it. Every whole 10 minutes without a mint burns
+///       S / 1008 of the unminted shelf to 0xdEaD, so an idle week burns all
+///       of it. A mint restarts the clock; halted seconds do not count; a
+///       due burn is settled by the next mint or by anyone through
+///       `settleL2Burn`. What is left to mint is S − minted − burned.
+///
 ///     • A mint paying C at price p receives (1/k) · ln(1 + kC/p) tokens and
 ///       leaves the price at p + kC. If the shelf holds less than C buys, the
 ///       mint takes the remainder and is charged only its cost.
@@ -99,7 +105,7 @@ import {L2CurveV31} from "./libraries/L2CurveV31.sol";
 ///     • ONE MINT per Agent ID and per wallet per project, of at most
 ///       `min(shelfCapPerAgent, raised / 10)` quote, booked by the factory.
 ///
-///     • Minted tokens go to `mintVesting`, which releases them linearly over 12
+///     • Minted tokens go to `mintVesting`, which releases them linearly over 8
 ///       hours, one step per minute.
 ///
 ///     • No price gate against the pool and no same-block lock: the curve
@@ -551,7 +557,7 @@ contract ToshLaunchpadHookV31 is ICLHooks, ILockCallback, ReentrancyGuard {
     address public immutable autoLp;
 
     /// @notice Platform-wide `ToshMintVesting`: every L2 mint is minted there
-    ///         and released to the buyer over 12 hours.
+    ///         and released to the buyer over 8 hours.
     address public immutable mintVesting;
 
     /// @notice The platform's revenue address. v3: receives the quote side of
@@ -748,9 +754,18 @@ contract ToshLaunchpadHookV31 is ICLHooks, ILockCallback, ReentrancyGuard {
 
     CurveState internal _curve;
 
-    /// @dev The factory's `ladderHaltedSeconds` for this hook when `_curve.at`
-    ///      was written, so halted time can be taken out of the decay clock.
-    uint256 internal _haltedAt;
+    /// @dev The idle burn and the halt clock in one slot. `haltedAt` is the
+    ///      factory's `ladderHaltedSeconds` for this hook when `_curve.at` was
+    ///      written, so halted time can be taken out of the idle clock;
+    ///      `burned` is tokens burned off the shelf so far; `periods` is how
+    ///      many 10-minute periods since the last mint have been burned for.
+    struct BurnState {
+        uint128 haltedAt;
+        uint96 burned;
+        uint32 periods;
+    }
+
+    BurnState internal _burn;
 
     // ─── Swap-derived state ───────────────────────────────────────────────────
 
@@ -810,6 +825,7 @@ contract ToshLaunchpadHookV31 is ICLHooks, ILockCallback, ReentrancyGuard {
     event FundWithdrawn(address indexed to, uint256 amount);
     /// @notice One L2 mint. `price` is where it left the curve and `minted`
     ///         the running total.
+    event L2Burned(uint256 amount, uint256 burned);
     event L2Minted(address indexed buyer, uint256 paid, uint256 tokens, uint256 price, uint256 minted);
 
     /// @notice Emitted when a quote-side skim funds the platform buyback
@@ -1293,7 +1309,10 @@ contract ToshLaunchpadHookV31 is ICLHooks, ILockCallback, ReentrancyGuard {
         l2Supply = FullMath.mulDiv(L2_SUPPLY, totalRaised < cap ? totalRaised : cap, cap);
         // forge-lint: disable-next-line(unsafe-typecast) — see `CurveState`
         _curve = CurveState({price: uint128(openPrice), minted: 0, at: uint32(block.timestamp)});
-        _haltedAt = IToshFactoryHaltV31(factory).ladderHaltedSeconds(address(this));
+        // forge-lint: disable-next-line(unsafe-typecast) — seconds, see `BurnState`
+        _burn = BurnState({
+            haltedAt: uint128(IToshFactoryHaltV31(factory).ladderHaltedSeconds(address(this))), burned: 0, periods: 0
+        });
 
         uint160 sqrtPriceX96 = _toSqrtPriceX96(lpQuote, lpTokens);
         poolManager.initialize(_key(), sqrtPriceX96);
@@ -1353,8 +1372,8 @@ contract ToshLaunchpadHookV31 is ICLHooks, ILockCallback, ReentrancyGuard {
     // ══════════════════════════════════════════════════════════════════════════
 
     /// @notice Mint off the L2 curve: spend up to `pay` quote at the current
-    ///         (decayed) price. The tokens vest to the caller over 12 hours
-    ///         through `mintVesting`.
+    ///         (decayed) price, after settling any idle burn that is due. The
+    ///         tokens vest to the caller over 8 hours through `mintVesting`.
     ///
     /// @dev    Once per Agent ID and per wallet on this project. The factory
     ///         books it, and refuses it while the ladder is halted, without an
@@ -1378,24 +1397,26 @@ contract ToshLaunchpadHookV31 is ICLHooks, ILockCallback, ReentrancyGuard {
         if (!launched) revert NotLaunched();
         if (pay < minBuy) revert BelowMinBuy();
         if (pay > l2Quota()) revert AboveL2Quota();
-        uint256 minted = _curve.minted;
+        (uint256 left, uint256 burn) = _settleBurn();
+        if (left == 0) revert L2SoldOut();
         uint256 supply = l2Supply;
-        if (minted >= supply) revert L2SoldOut();
+        IToshFactoryHaltV31 f = IToshFactoryHaltV31(factory);
 
         uint256 price;
-        (tokens, cost, price) = L2CurveV31.quote(l2Price(), minted, supply, pay);
+        (tokens, cost, price) = f.l2Quote(l2Price(), supply - left, supply, pay);
         if (tokens == 0) revert ZeroAmount();
         if (tokens < minTokens) revert BelowMinTokens();
 
         // EFFECTS
-        minted += tokens;
+        uint256 minted = _curve.minted + tokens;
         // forge-lint: disable-next-line(unsafe-typecast) — see `CurveState`
         _curve = CurveState({price: uint128(price), minted: uint96(minted), at: uint32(block.timestamp)});
-        IToshFactoryHaltV31 f = IToshFactoryHaltV31(factory);
-        _haltedAt = f.ladderHaltedSeconds(address(this));
+        // forge-lint: disable-next-line(unsafe-typecast) — seconds, see `BurnState`
+        _burn = BurnState({haltedAt: uint128(f.ladderHaltedSeconds(address(this))), burned: _burn.burned, periods: 0});
 
         // INTERACTIONS
         f.bookShelfMint(msg.sender, cost);
+        if (burn != 0) projectToken.mint(DEAD_ADDRESS, burn);
 
         uint256 platformCut = (cost * PLATFORM_TAX_BPS) / BPS_DENOMINATOR;
         uint256 lpCut = (cost * LP_SHARE_BPS) / BPS_DENOMINATOR;
@@ -1414,16 +1435,61 @@ contract ToshLaunchpadHookV31 is ICLHooks, ILockCallback, ReentrancyGuard {
         if (lpCut > 0) IToshAutoLpV31(autoLp).deposit(lpCut);
     }
 
+    /// @notice Burn whatever idle burn is due. Permissionless; `mintL2` does
+    ///         the same first.
+    function settleL2Burn() external {
+        (, uint256 burn) = _settleBurn();
+        if (burn != 0) projectToken.mint(DEAD_ADDRESS, burn);
+    }
+
     /// @notice The curve price right now, quote wei per whole token: the last
     ///         mint's price less 0.1 % per whole minute since, not counting
     ///         seconds the factory's ladder halt covered. Never below 1 wei.
     function l2Price() public view returns (uint256) {
         if (!launched) return 0;
-        CurveState memory c = _curve;
-        uint256 halted = IToshFactoryHaltV31(factory).ladderHaltedSeconds(address(this)) - _haltedAt;
-        uint256 since = uint256(c.at) + halted;
-        if (since > block.timestamp) since = block.timestamp;
-        return L2CurveV31.decayed(c.price, since, block.timestamp);
+        return L2CurveV31.decayed(_curve.price, _idle());
+    }
+
+    /// @notice Tokens still mintable once any due idle burn is settled:
+    ///         `l2Supply − minted − burned`.
+    function l2Remaining() external view returns (uint256 left) {
+        (,, left) = _burnDue();
+    }
+
+    /// @dev Seconds since the last mint (or launch), less halted seconds.
+    function _idle() private view returns (uint256) {
+        uint256 busy =
+            uint256(_curve.at) + IToshFactoryHaltV31(factory).ladderHaltedSeconds(address(this)) - _burn.haltedAt;
+        return busy < block.timestamp ? block.timestamp - busy : 0;
+    }
+
+    /// @dev The idle burn due now, the period count it brings the slot to, and
+    ///      what the shelf holds after it.
+    function _burnDue() private view returns (uint256 due, uint256 periods, uint256 left) {
+        BurnState memory b = _burn;
+        uint256 supply = l2Supply;
+        left = supply - _curve.minted - b.burned;
+        periods = _idle() / L2CurveV31.BURN_INTERVAL;
+        if (periods > b.periods) {
+            due = (periods - b.periods) * (supply / L2CurveV31.BURN_PERIODS);
+            if (due > left) due = left;
+            left -= due;
+        }
+    }
+
+    /// @dev Book the due idle burn; returns what the shelf holds after it and
+    ///      how much the caller must mint to 0xdEaD. Before launch the shelf
+    ///      is empty and nothing is due.
+    function _settleBurn() private returns (uint256 left, uint256 due) {
+        uint256 periods;
+        (due, periods, left) = _burnDue();
+        if (due == 0) return (left, 0);
+        BurnState storage b = _burn;
+        // forge-lint: disable-next-line(unsafe-typecast) — ≤ l2Supply, see `CurveState`
+        b.burned += uint96(due);
+        // forge-lint: disable-next-line(unsafe-typecast) — 10-minute periods
+        b.periods = uint32(periods);
+        emit L2Burned(due, b.burned);
     }
 
     /// @notice Most quote one mint may spend on this project before the
@@ -2194,6 +2260,10 @@ interface IToshFactoryHaltV31 {
     function genesisBlocked(address hook, address user) external view returns (bool);
     function bookShelfMint(address buyer, uint256 cost) external;
     function ladderHaltedSeconds(address hook) external view returns (uint256);
+    function l2Quote(uint256 price, uint256 minted, uint256 supply, uint256 pay)
+        external
+        pure
+        returns (uint256 tokens, uint256 cost, uint256 priceAfter);
 }
 
 interface IToshMintVestingV31 {

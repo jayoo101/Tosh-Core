@@ -5,9 +5,9 @@
   "_generated": "2026-10-31",
   "contracts": 134,
   "detectorsRun": 102,
-  "total": 230,
+  "total": 231,
   "byImpact": {
-    "Informational": 72,
+    "Informational": 73,
     "Low": 75,
     "Medium": 81,
     "High": 2
@@ -15,9 +15,9 @@
   "byCheck": {
     "assembly": 17,
     "calls-loop": 10,
-    "cyclomatic-complexity": 7,
+    "cyclomatic-complexity": 8,
     "dead-code": 1,
-    "divide-before-multiply": 8,
+    "divide-before-multiply": 9,
     "incorrect-equality": 9,
     "low-level-calls": 4,
     "missing-inheritance": 20,
@@ -30,7 +30,7 @@
     "too-many-digits": 1,
     "tx-origin": 3,
     "uninitialized-local": 18,
-    "unused-return": 38,
+    "unused-return": 37,
     "weak-prng": 2
   },
   "findings": [
@@ -252,6 +252,13 @@
       "count": 1
     },
     {
+      "check": "cyclomatic-complexity",
+      "impact": "Informational",
+      "file": "src/v31/ToshLaunchpadHookV31.sol",
+      "scope": "ToshLaunchpadHookV31.mintL2",
+      "count": 1
+    },
+    {
       "check": "dead-code",
       "impact": "Informational",
       "file": "src/v31/ToshLaunchpadHookV31.sol",
@@ -298,6 +305,13 @@
       "impact": "Medium",
       "file": "src/v3/ToshLaunchpadHookV3.sol",
       "scope": "ToshLaunchpadHookV3.launch",
+      "count": 1
+    },
+    {
+      "check": "divide-before-multiply",
+      "impact": "Medium",
+      "file": "src/v31/ToshLaunchpadHookV31.sol",
+      "scope": "ToshLaunchpadHookV31._burnDue",
       "count": 1
     },
     {
@@ -1018,14 +1032,14 @@
       "check": "timestamp",
       "impact": "Low",
       "file": "src/v31/ToshLaunchpadHookV31.sol",
-      "scope": "ToshLaunchpadHookV31.buyGenesis",
+      "scope": "ToshLaunchpadHookV31._idle",
       "count": 1
     },
     {
       "check": "timestamp",
       "impact": "Low",
       "file": "src/v31/ToshLaunchpadHookV31.sol",
-      "scope": "ToshLaunchpadHookV31.l2Price",
+      "scope": "ToshLaunchpadHookV31.buyGenesis",
       "count": 1
     },
     {
@@ -1369,13 +1383,6 @@
       "impact": "Medium",
       "file": "src/v31/ToshFactoryV31.sol",
       "scope": "ToshFactoryV31.createLaunch",
-      "count": 1
-    },
-    {
-      "check": "unused-return",
-      "impact": "Medium",
-      "file": "src/v31/ToshHookLensV31.sol",
-      "scope": "ToshHookLensV31.quoteL2",
       "count": 1
     },
     {

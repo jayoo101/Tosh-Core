@@ -15,8 +15,8 @@ interface IToshMintVestingFactory {
 }
 
 /// @title  ToshMintVesting
-/// @notice Holds every v3.1 L2 mint and releases it linearly over 12 hours,
-///         one step per minute (1/720 each).
+/// @notice Holds every v3.1 L2 mint and releases it linearly over 8 hours,
+///         one step per minute (1/480 each).
 ///
 ///         One record per wallet per project. The hook mints the tokens here
 ///         and calls `lock` in the same transaction; the factory already
@@ -29,7 +29,7 @@ interface IToshMintVestingFactory {
 contract ToshMintVesting {
     using SafeERC20 for IERC20;
 
-    uint256 public constant DURATION = 12 hours;
+    uint256 public constant DURATION = 8 hours;
     uint256 public constant STEP = 1 minutes;
     uint256 public constant STEPS = DURATION / STEP;
 
