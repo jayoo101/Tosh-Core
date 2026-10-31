@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { STACK_SUPPLY, V2 } from '../src/lib/v2/config'
+import { STACK_SUPPLY, V2, V31 } from '../src/lib/v2/config'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const V2_HOOK = 'src/ToshLaunchpadHook.sol'
@@ -29,6 +29,10 @@ const V2_TOKEN = 'src/ToshToken.sol'
 const V3_HOOK = 'src/v3/ToshLaunchpadHookV3.sol'
 const V3_CURVE = 'src/v3/libraries/GenesisCurveV3.sol'
 const V3_TOKEN = 'src/v3/ToshTokenV3.sol'
+const V31_HOOK = 'src/v31/ToshLaunchpadHookV31.sol'
+const V31_CURVE = 'src/v31/libraries/L2CurveV31.sol'
+const V31_TOKEN = 'src/v31/ToshTokenV31.sol'
+const V31_VESTING = 'src/v31/ToshMintVesting.sol'
 
 const problems: string[] = []
 const fail = (m: string) => problems.push(m)
@@ -177,6 +181,28 @@ const FIELDS: Field[] = [
     cost: 'a v3 build misstates the share routed to the project fund' },
   { sol: 'ADMIN_LAUNCH_WINDOW', file: V3_HOOK, ts: BigInt(V2.ADMIN_LAUNCH_WINDOW_S), where: 'v2/config.V2.ADMIN_LAUNCH_WINDOW_S',
     cost: 'a v3 launch panel opens launching to the public early' },
+  { sol: 'MAX_SUPPLY', file: V31_TOKEN, ts: V31.MAX_SUPPLY, where: 'v2/config.V31.MAX_SUPPLY',
+    cost: 'the v3.1 tokenomics split is drawn against the wrong total' },
+  { sol: 'SALE_SUPPLY', file: V3_CURVE, ts: V31.SALE_SUPPLY, where: 'v2/config.V31.SALE_SUPPLY',
+    cost: 'the v3.1 tokenomics misstates what genesis sells' },
+  { sol: 'GENESIS_SUPPLY', file: V31_HOOK, ts: V31.GENESIS_SUPPLY, where: 'v2/config.V31.GENESIS_SUPPLY',
+    cost: 'the v3.1 tokenomics misstates the opening pool' },
+  { sol: 'L2_SUPPLY', file: V31_HOOK, ts: V31.L2_SUPPLY, where: 'v2/config.V31.L2_SUPPLY',
+    cost: 'the v3.1 tokenomics misstates the L2 curve supply' },
+  { sol: 'L2_QUOTA_BPS', file: V31_HOOK, ts: V31.L2_QUOTA_BPS, where: 'v2/config.V31.L2_QUOTA_BPS',
+    cost: 'the L2 rules quote a per-wallet quota the hook does not apply' },
+  { sol: 'LP_SHARE_BPS', file: V31_HOOK, ts: V31.LP_SHARE_BPS, where: 'v2/config.V31.LP_SHARE_BPS',
+    cost: 'the L2 rules misstate the share of a mint that deepens the pool' },
+  { sol: 'PLATFORM_TAX_BPS', file: V31_HOOK, ts: V31.PLATFORM_TAX_BPS, where: 'v2/config.V31.PLATFORM_TAX_BPS',
+    cost: 'the L2 rules misstate the share of a mint that funds the TOSH buyback' },
+  { sol: 'DECAY_INTERVAL', file: V31_CURVE, ts: BigInt(V31.DECAY_INTERVAL_S), where: 'v2/config.V31.DECAY_INTERVAL_S',
+    cost: 'the L2 panel counts down to a price step that lands at another time' },
+  { sol: 'BURN_INTERVAL', file: V31_CURVE, ts: BigInt(V31.BURN_INTERVAL_S), where: 'v2/config.V31.BURN_INTERVAL_S',
+    cost: 'the L2 panel counts down to an idle burn that lands at another time' },
+  { sol: 'BURN_PERIODS', file: V31_CURVE, ts: V31.BURN_PERIODS, where: 'v2/config.V31.BURN_PERIODS',
+    cost: 'the L2 panel states the wrong size for one idle burn' },
+  { sol: 'DURATION', file: V31_VESTING, ts: BigInt(V31.VEST_DURATION_S), where: 'v2/config.V31.VEST_DURATION_S',
+    cost: 'the vesting panel shows a schedule the vesting contract does not release on' },
 ]
 
 for (const f of FIELDS) {

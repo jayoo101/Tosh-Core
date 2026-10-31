@@ -18,6 +18,11 @@
 //   NEXT_PUBLIC_TOSH_STACK        `v3` when the addresses above are a v3
 //                                 deployment (script/DeployV3.s.sol); unset or
 //                                 `v2` otherwise. One stack is live at a time.
+//   NEXT_PUBLIC_V31_FACTORY       ToshFactoryV31 (USDT, script/DeployV31.s.sol).
+//                                 Optional: its hooks list and trade beside the
+//                                 stack above, with the L2 curve in place of
+//                                 the shelf ladder.
+//   NEXT_PUBLIC_V31_LENS          ToshHookLensV31; required with the factory.
 import { getAddress, type Address } from 'viem'
 import { NATIVE_SYMBOL } from '@/lib/chain'
 
@@ -52,10 +57,16 @@ export const V2_LEGACY_FACTORIES_USDT = addrList(process.env.NEXT_PUBLIC_V2_LEGA
 
 export const V2_ENABLED = V2_BIDBOOK !== undefined && V2_LENS !== undefined
 
-/** Every factory whose projects are listed: the current pair, then the legacy ones. */
+const V31_FACTORY_RAW = addr(process.env.NEXT_PUBLIC_V31_FACTORY)
+export const V31_LENS = addr(process.env.NEXT_PUBLIC_V31_LENS)
+/** Unset unless the lens is too, so every v3.1 read has somewhere to go. */
+export const V31_FACTORY = V31_LENS !== undefined ? V31_FACTORY_RAW : undefined
+export const V31_ENABLED = V2_ENABLED && V31_FACTORY !== undefined
+
+/** Every factory whose projects are listed: the current pair, v3.1, then the legacy ones. */
 export const V2_FACTORIES: readonly Address[] = [
   ...new Set(
-    [V2_FACTORY_BNB, V2_FACTORY_USDT, ...V2_LEGACY_FACTORIES_BNB, ...V2_LEGACY_FACTORIES_USDT].filter(
+    [V2_FACTORY_BNB, V2_FACTORY_USDT, V31_ENABLED ? V31_FACTORY : undefined, ...V2_LEGACY_FACTORIES_BNB, ...V2_LEGACY_FACTORIES_USDT].filter(
       (a): a is Address => a !== undefined,
     ),
   ),
@@ -68,6 +79,10 @@ const has = (list: readonly (Address | undefined)[], a: string) => {
 
 export function isV2Factory(a: string | null | undefined): boolean {
   return !!a && has(V2_FACTORIES, a)
+}
+
+export function isV31Factory(a: string | null | undefined): boolean {
+  return !!a && V31_ENABLED && has([V31_FACTORY], a)
 }
 
 /** A listed factory that no longer takes launches. */
@@ -141,4 +156,25 @@ export const V2 = {
   GENESIS_SUPPLY: SUPPLY.GENESIS_SUPPLY,
   FUND_BPS: 2000n,
   TIER_COUNT: SUPPLY.TIER_COUNT,
+} as const
+
+/**
+ * v3.1 mirrors, independent of the stack switch. Genesis is v3's curve; the
+ * pool and the L2 curve both scale by raised / hard cap.
+ */
+export const V31 = {
+  MAX_SUPPLY: 1_000_000_000n * 10n ** 18n,
+  SALE_SUPPLY: 180_000_000n * 10n ** 18n,
+  GENESIS_SUPPLY: 270_000_000n * 10n ** 18n,
+  L2_SUPPLY: 730_000_000n * 10n ** 18n,
+  L2_QUOTA_BPS: 1000n,
+  LP_SHARE_BPS: 8000n,
+  /** To the TOSH buyback; the project takes the rest of a mint. */
+  PLATFORM_TAX_BPS: 100n,
+  DECAY_INTERVAL_S: 60,
+  /** One step multiplies the price by 0.999. */
+  DECAY_PER_STEP: 0.999,
+  BURN_INTERVAL_S: 600,
+  BURN_PERIODS: 1008n,
+  VEST_DURATION_S: 8 * 3600,
 } as const
