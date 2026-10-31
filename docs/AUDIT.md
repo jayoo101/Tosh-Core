@@ -10,7 +10,7 @@ firing without somebody deciding about it. Neither gate is advisory.
 | Baseline | `slither-baseline.json` | `aderyn-baseline.json` |
 | Gate | `scripts/checkSlitherFindings.mjs` | `scripts/checkAderynFindings.mjs` |
 | Scope | `src/` (`--filter-paths lib/\|test/\|script/`) | `src/` (inferred from `foundry.toml`) |
-| Current | 248 findings, 2H/91M/79L/76I | 391 findings, 83H/308L |
+| Current | 253 findings, 2H/93M/82L/76I | 391 findings, 83H/308L |
 | Runtime | ~15 s, plus a slower `pip install` | ~6 s, no compile of its own |
 
 The current counts include `src/v3/`: the token, hook, factory and lens now

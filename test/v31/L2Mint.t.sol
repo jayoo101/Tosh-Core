@@ -139,6 +139,15 @@ contract L2MintTestV31 is V31Base {
         hook.mintL2(60e18, 0);
     }
 
+    function test_shelfCapBelowMinBuyRefused() public {
+        vm.startPrank(admin);
+        vm.expectRevert(ToshFactoryV31.InvalidShelfCap.selector);
+        factory.setShelfCapPerAgent(MIN_BUY - 1);
+        factory.setShelfCapPerAgent(MIN_BUY);
+        vm.stopPrank();
+        assertEq(factory.shelfCapPerAgent(), MIN_BUY);
+    }
+
     function test_mint_requiresAgentId() public {
         vm.prank(dave);
         vm.expectRevert(ToshFactoryV31.NoAgentId.selector);
@@ -263,6 +272,44 @@ contract L2MintTestV31 is V31Base {
         vm.stopPrank();
         assertEq(factory.ladderHaltedSeconds(address(hook)), 20 minutes + 1 hours);
         assertEq(factory.ladderHaltedSeconds(address(0xBEEF)), 0, "a halt on one hook is not another's");
+        assertFalse(factory.ladderMintingHalted(address(hook)));
+    }
+
+    function test_decay_overlappingHaltsCountOnce() public {
+        _mint(alice, 50e18);
+        (, uint256 t0,) = hook.l2State();
+        vm.warp(t0 + 3 days);
+        uint256 price = hook.l2Price();
+        uint256 left = hook.l2Remaining();
+
+        vm.startPrank(admin);
+        factory.haltLadderMinting(address(0), 4 days);
+        factory.haltLadderMinting(address(hook), 4 days);
+        vm.stopPrank();
+        vm.warp(t0 + 7 days + 1);
+
+        assertEq(factory.ladderHaltedSeconds(address(hook)), 4 days, "an overlap counts once");
+        assertEq(hook.l2Price(), price, "decay neither undone nor advanced");
+        assertEq(hook.l2Remaining(), left, "the due burn is kept");
+    }
+
+    function test_decay_partlyOverlappingHaltsCountTheirUnion() public {
+        uint256 t0 = vm.getBlockTimestamp();
+        vm.startPrank(admin);
+        factory.haltLadderMinting(address(hook), 2 hours); // hook: 0 .. 120m
+        vm.warp(t0 + 1 hours);
+        factory.haltLadderMinting(address(0), 2 hours); // global: 60m .. 90m (resumed)
+        vm.warp(t0 + 90 minutes);
+        assertEq(factory.ladderHaltedSeconds(address(hook)), 90 minutes);
+        factory.resumeLadderMinting(address(0));
+        vm.warp(t0 + 100 minutes);
+        factory.haltLadderMinting(address(0), 1 hours); // global: 100m .. 160m
+        vm.stopPrank();
+        vm.warp(t0 + 5 hours);
+
+        assertEq(factory.ladderHaltedSeconds(address(hook)), 160 minutes, "union of 0..120m and the global arms");
+        assertEq(factory.ladderHaltedSeconds(address(0xBEEF)), 90 minutes, "others count only the global arms");
+        assertEq(factory.globalLadderHaltedUntil(), t0 + 160 minutes);
         assertFalse(factory.ladderMintingHalted(address(hook)));
     }
 
@@ -451,6 +498,23 @@ contract L2MintTestV31 is V31Base {
         vesting.claim(address(hook));
     }
 
+    function test_vesting_claimForPaysOnlyTheMinter() public {
+        (uint256 tokens,) = _mint(alice, 100e18);
+        uint256 aliceBefore = token.balanceOf(alice);
+        uint256 bobBefore = token.balanceOf(bob);
+        vm.warp(vm.getBlockTimestamp() + 8 hours);
+
+        vm.prank(bob);
+        assertEq(vesting.claimFor(address(hook), alice), tokens);
+        assertEq(token.balanceOf(alice) - aliceBefore, tokens, "paid to the minter");
+        assertEq(token.balanceOf(bob), bobBefore, "not to the caller");
+
+        vm.expectRevert(ToshMintVesting.NothingToClaim.selector);
+        vesting.claimFor(address(hook), alice);
+        vm.expectRevert(ToshMintVesting.NothingToClaim.selector);
+        vesting.claimFor(address(hook), dave);
+    }
+
     function test_vesting_onlyRegisteredHooksLock() public {
         vm.expectRevert(ToshMintVesting.UnknownHook.selector);
         vesting.lock(alice, 1e18);
@@ -467,6 +531,25 @@ contract L2MintTestV31 is V31Base {
     }
 
     // ─── Pool ─────────────────────────────────────────────────────────────────
+
+    function test_autoLp_defersInABlockThePoolTradedIn() public {
+        for (uint256 i; i < 3; ++i) {
+            _swapBuy(hook, trader, 1e18);
+            vm.roll(vm.getBlockNumber() + 1);
+            vm.warp(vm.getBlockTimestamp() + 31 minutes);
+        }
+        assertGt(hook.twapSqrtPriceX96(), 0, "matured");
+
+        _swapBuy(hook, trader, 1e18);
+        assertEq(hook.twapSqrtPriceX96(), 0, "hidden in a block the pool traded in");
+        _mint(alice, 100e18);
+        assertEq(autoLp.pendingQuote(address(hook)), 80e18, "the deposit waits");
+
+        vm.roll(vm.getBlockNumber() + 1);
+        assertGt(hook.twapSqrtPriceX96(), 0);
+        autoLp.flush(address(hook));
+        assertLt(autoLp.pendingQuote(address(hook)), 80e18, "and goes in on a later flush");
+    }
 
     function test_pool_tradesAfterMints() public {
         _mint(alice, 100e18);

@@ -5,11 +5,11 @@
   "_generated": "2026-10-31",
   "contracts": 140,
   "detectorsRun": 102,
-  "total": 248,
+  "total": 253,
   "byImpact": {
     "Informational": 76,
-    "Low": 79,
-    "Medium": 91,
+    "Low": 82,
+    "Medium": 93,
     "High": 2
   },
   "byCheck": {
@@ -18,7 +18,7 @@
     "cyclomatic-complexity": 8,
     "dead-code": 1,
     "divide-before-multiply": 10,
-    "incorrect-equality": 12,
+    "incorrect-equality": 13,
     "low-level-calls": 4,
     "missing-inheritance": 20,
     "missing-zero-check": 2,
@@ -26,10 +26,10 @@
     "reentrancy-benign": 10,
     "reentrancy-events": 21,
     "reentrancy-no-eth": 5,
-    "timestamp": 36,
+    "timestamp": 39,
     "too-many-digits": 1,
     "tx-origin": 3,
-    "uninitialized-local": 18,
+    "uninitialized-local": 19,
     "unused-return": 43,
     "weak-prng": 2
   },
@@ -415,8 +415,15 @@
     {
       "check": "incorrect-equality",
       "impact": "Medium",
+      "file": "src/v31/ToshFactoryV31.sol",
+      "scope": "ToshFactoryV31._globalUntil",
+      "count": 1
+    },
+    {
+      "check": "incorrect-equality",
+      "impact": "Medium",
       "file": "src/v31/ToshMintVesting.sol",
-      "scope": "ToshMintVesting.claim",
+      "scope": "ToshMintVesting._claim",
       "count": 1
     },
     {
@@ -1081,7 +1088,28 @@
       "check": "timestamp",
       "impact": "Low",
       "file": "src/v31/ToshFactoryV31.sol",
-      "scope": "ToshFactoryV31._haltedSeconds",
+      "scope": "ToshFactoryV31._endGlobalArm",
+      "count": 1
+    },
+    {
+      "check": "timestamp",
+      "impact": "Low",
+      "file": "src/v31/ToshFactoryV31.sol",
+      "scope": "ToshFactoryV31._globalAt",
+      "count": 1
+    },
+    {
+      "check": "timestamp",
+      "impact": "Low",
+      "file": "src/v31/ToshFactoryV31.sol",
+      "scope": "ToshFactoryV31._globalUntil",
+      "count": 1
+    },
+    {
+      "check": "timestamp",
+      "impact": "Low",
+      "file": "src/v31/ToshFactoryV31.sol",
+      "scope": "ToshFactoryV31._hookOnlySeconds",
       "count": 1
     },
     {
@@ -1130,14 +1158,14 @@
       "check": "timestamp",
       "impact": "Low",
       "file": "src/v31/ToshMintVesting.sol",
-      "scope": "ToshMintVesting._vested",
+      "scope": "ToshMintVesting._claim",
       "count": 1
     },
     {
       "check": "timestamp",
       "impact": "Low",
       "file": "src/v31/ToshMintVesting.sol",
-      "scope": "ToshMintVesting.claim",
+      "scope": "ToshMintVesting._vested",
       "count": 1
     },
     {
@@ -1271,6 +1299,13 @@
       "impact": "Medium",
       "file": "src/v3/ToshLaunchpadHookV3.sol",
       "scope": "mintBondingCurve.filled",
+      "count": 1
+    },
+    {
+      "check": "uninitialized-local",
+      "impact": "Medium",
+      "file": "src/v31/ToshFactoryV31.sol",
+      "scope": "_globalAt.lo",
       "count": 1
     },
     {

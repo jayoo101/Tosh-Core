@@ -111,9 +111,9 @@ contract ToshFactoryV31 is Ownable2Step, Pausable, ReentrancyGuard {
     bool public globalGenesisPaused;
     mapping(address hook => bool) public hookGenesisPaused;
 
-    /// @dev One halt clock per hook, and one under `address(0)` for the global
-    ///      halt. `start..until` is the current or most recent arm; `accum`
-    ///      holds the seconds every earlier arm actually ran.
+    /// @dev One halt clock per hook. `start..until` is the current or most
+    ///      recent arm; `accum` holds the seconds earlier arms ran while no
+    ///      global halt did, so an overlap is never counted twice.
     struct HaltClock {
         uint64 start;
         uint64 until;
@@ -121,6 +121,11 @@ contract ToshFactoryV31 is Ownable2Step, Pausable, ReentrancyGuard {
     }
 
     mapping(address hook => HaltClock) internal _halts;
+
+    /// @dev Every global arm in order, `accum` being the global halted seconds
+    ///      at its `start`. Kept whole so the global total at any past moment,
+    ///      which a hook's overlap needs, can be read back.
+    HaltClock[] internal _globalArms;
 
     // ─── Launch registry ──────────────────────────────────────────────────────
 
@@ -295,7 +300,8 @@ contract ToshFactoryV31 is Ownable2Step, Pausable, ReentrancyGuard {
     }
 
     function _setShelfCapPerAgent(uint256 cap) private {
-        if (cap == 0 || cap > ABS_MAX_CAP) revert InvalidShelfCap();
+        // Below `minBuy` no ordinary mint could fit under it.
+        if (cap < minBuy || cap > ABS_MAX_CAP) revert InvalidShelfCap();
         shelfCapPerAgent = cap;
         emit ShelfCapSet(cap);
     }
@@ -358,51 +364,89 @@ contract ToshFactoryV31 is Ownable2Step, Pausable, ReentrancyGuard {
     function haltLadderMinting(address hook, uint256 duration) external onlyOwner {
         if (duration == 0 || duration > MAX_HALT_DURATION) revert HaltDurationTooLong();
         uint256 until = block.timestamp + duration;
-        HaltClock storage h = _halts[hook];
-        h.accum = uint128(_haltedSeconds(h));
-        h.start = uint64(block.timestamp);
-        // forge-lint: disable-next-line(unsafe-typecast) — now + at most MAX_HALT_DURATION
-        h.until = uint64(until);
+        if (hook == address(0)) {
+            uint256 g = _globalAt(block.timestamp);
+            _endGlobalArm();
+            // forge-lint: disable-next-line(unsafe-typecast) — now + at most MAX_HALT_DURATION; seconds
+            _globalArms.push(HaltClock({start: uint64(block.timestamp), until: uint64(until), accum: uint128(g)}));
+        } else {
+            HaltClock storage h = _halts[hook];
+            h.accum = uint128(_hookOnlySeconds(h));
+            h.start = uint64(block.timestamp);
+            // forge-lint: disable-next-line(unsafe-typecast) — now + at most MAX_HALT_DURATION
+            h.until = uint64(until);
+        }
         emit LadderMintingHalted(hook, until);
     }
 
     function resumeLadderMinting(address hook) external onlyOwner {
-        HaltClock storage h = _halts[hook];
-        h.accum = uint128(_haltedSeconds(h));
-        h.start = 0;
-        h.until = 0;
+        if (hook == address(0)) {
+            _endGlobalArm();
+        } else {
+            HaltClock storage h = _halts[hook];
+            h.accum = uint128(_hookOnlySeconds(h));
+            h.start = 0;
+            h.until = 0;
+        }
         emit LadderMintingResumed(hook);
     }
 
     function ladderMintingHalted(address hook) public view returns (bool) {
-        return block.timestamp < _halts[address(0)].until || block.timestamp < _halts[hook].until;
+        return block.timestamp < _globalUntil() || block.timestamp < _halts[hook].until;
     }
 
     function globalLadderHaltedUntil() external view returns (uint256) {
-        return _halts[address(0)].until;
+        return _globalUntil();
     }
 
     function hookLadderHaltedUntil(address hook) external view returns (uint256) {
         return _halts[hook].until;
     }
 
-    /// @notice Seconds `hook`'s shelf has spent halted, its own halts plus the
-    ///         global ones, since this factory was deployed. Never decreases.
-    ///
-    /// @dev    A hook halted globally and individually at once counts that
-    ///         overlap twice. The hook clamps its decay clock at zero, so the
-    ///         only effect is a price that decays a little less, never more.
+    /// @notice Seconds `hook`'s shelf has spent halted, by its own halts or
+    ///         the global ones, since this factory was deployed. A second both
+    ///         covered counts once. Never decreases, and never grows faster
+    ///         than time, so the hook's idle clock only ever stands still.
     function ladderHaltedSeconds(address hook) external view returns (uint256) {
-        return _haltedSeconds(_halts[address(0)]) + _haltedSeconds(_halts[hook]);
+        return _globalAt(block.timestamp) + _hookOnlySeconds(_halts[hook]);
     }
 
-    function _haltedSeconds(HaltClock storage h) private view returns (uint256 total) {
+    /// @dev Seconds `h` ran while no global halt did.
+    function _hookOnlySeconds(HaltClock storage h) private view returns (uint256 total) {
         total = h.accum;
         uint256 start = h.start;
         if (start != 0) {
             uint256 end = block.timestamp < h.until ? block.timestamp : h.until;
-            total += end - start;
+            total += (end - start) - (_globalAt(end) - _globalAt(start));
         }
+    }
+
+    /// @dev Global halted seconds up to `t`, which must not be in the future.
+    ///      Settled for good once passed: an arm is only ever cut short at
+    ///      `block.timestamp`, and new arms start there.
+    function _globalAt(uint256 t) private view returns (uint256) {
+        uint256 lo;
+        uint256 hi = _globalArms.length;
+        while (lo < hi) {
+            uint256 mid = (lo + hi) / 2;
+            if (_globalArms[mid].start <= t) lo = mid + 1;
+            else hi = mid;
+        }
+        if (lo == 0) return 0;
+        HaltClock storage a = _globalArms[lo - 1];
+        uint256 end = t < a.until ? t : a.until;
+        return a.accum + end - a.start;
+    }
+
+    function _globalUntil() private view returns (uint256) {
+        uint256 n = _globalArms.length;
+        return n == 0 ? 0 : _globalArms[n - 1].until;
+    }
+
+    function _endGlobalArm() private {
+        uint256 n = _globalArms.length;
+        // forge-lint: disable-next-line(unsafe-typecast) — a timestamp
+        if (n != 0 && _globalArms[n - 1].until > block.timestamp) _globalArms[n - 1].until = uint64(block.timestamp);
     }
 
     /// @notice `L2CurveV31.quote`, hosted here because the hook has no room
