@@ -26,7 +26,7 @@ import {MockQuoteAsset} from "../../utils/MockQuoteAsset.sol";
 import {MockAgentRegistryV3} from "../../v3/utils/MockAgentRegistryV3.sol";
 
 /// @notice Shared v3.1 fixture: a USDT-style stack on a real Infinity Vault and
-///         CLPoolManager, with the 12-hour mint vesting contract.
+///         CLPoolManager, with the 8-hour mint vesting contract.
 abstract contract V31Base is Test {
     address internal admin = makeAddr("admin");
     address internal dev = makeAddr("dev");
@@ -57,6 +57,8 @@ abstract contract V31Base is Test {
     ToshHookLensV31 internal lens;
     ToshAutoLp internal autoLp;
     ToshMintVesting internal vesting;
+    /// @dev Set before `_deployFactory` to wire a treasury other than `ladder`.
+    address internal treasuryOverride;
 
     function setUp() public virtual {
         vault = new Vault();
@@ -96,11 +98,12 @@ abstract contract V31Base is Test {
     /// @dev Must run inside `vm.startPrank(admin)`.
     function _deployFactory() internal returns (ToshFactoryV31 f) {
         address predicted = vm.computeCreateAddress(admin, vm.getNonce(admin) + 1);
+        address treasury = treasuryOverride == address(0) ? address(ladder) : treasuryOverride;
         ToshLaunchpadHookV31 impl = new ToshLaunchpadHookV31(
             address(poolManager),
             address(vault),
             predicted,
-            address(ladder),
+            treasury,
             platform,
             address(quote),
             address(registry),
@@ -114,7 +117,7 @@ abstract contract V31Base is Test {
                 poolManager: address(poolManager),
                 vault: address(vault),
                 platformTreasury: platform,
-                ladderTreasury: address(ladder),
+                ladderTreasury: treasury,
                 quoteAsset: address(quote),
                 bidBook: address(book),
                 agentRegistry: address(registry),

@@ -10,7 +10,7 @@ firing without somebody deciding about it. Neither gate is advisory.
 | Baseline | `slither-baseline.json` | `aderyn-baseline.json` |
 | Gate | `scripts/checkSlitherFindings.mjs` | `scripts/checkAderynFindings.mjs` |
 | Scope | `src/` (`--filter-paths lib/\|test/\|script/`) | `src/` (inferred from `foundry.toml`) |
-| Current | 231 findings, 2H/81M/75L/73I | 374 findings, 77H/297L |
+| Current | 248 findings, 2H/91M/79L/76I | 391 findings, 83H/308L |
 | Runtime | ~15 s, plus a slower `pip install` | ~6 s, no compile of its own |
 
 The current counts include `src/v3/`: the token, hook, factory and lens now
@@ -241,9 +241,32 @@ The dispositions above cover both copies. The other 13 are new:
   `mintL2`, whose branches are its guards and the three payment legs.
 - **`dead-code`** — `_sqrt`, explained above.
 
+`ToshBuybackV31`, the TOSH buyback in the v3.1 `ladderTreasury` slot, adds 17
+more, all of a shape v3's `ToshLadderTreasury` already carries:
+
+- **`assembly`** ×2 — `piggybackActive` / `_setPiggyback`, the `tload` /
+  `tstore` recursion flag v3.1 hooks read.
+- **`unused-return`** ×5 — the pair's reserve timestamp, `getSlot0`'s fee
+  fields, `getVaultReserve`'s amount, Chainlink's round fields, and the leg
+  kind `pokeBuyback` does not need.
+- **`incorrect-equality`** ×3 — `lastBurnBlock == block.number` (one burn leg
+  per block), `amount == 0` (unarmed) and the synced-currency check.
+- **`reentrancy-events`** ×3 — `Converted`, `BuybackBurned` and `LegSkipped`
+  follow calls into the V2 pair, the Vault or the contract itself; there is no
+  state to reorder and the callees are fixed at construction.
+- **`divide-before-multiply`** — `_convertLeg` caps the input at 0.5 % of the
+  pair's reserve and then prices it. The cap is a ceiling, not a value the
+  price depends on.
+- **`timestamp`** — `bnbUsdPrice` refuses a Chainlink answer older than an
+  hour. Validator skew of seconds does not matter at that scale.
+- **`naming-convention`** — `TRIGGER_STEP` keeps the name the v3.1 hook's
+  constructor reads.
+- One more `missing-inheritance`: the buyback matches the hook's private
+  treasury interface without importing it.
+
 ## Aderyn disposition record
 
-23 detectors, 374 instances, all triaged, nothing unresolved.
+23 detectors, 391 instances, all triaged, nothing unresolved.
 
 `src/v31/` adds six source units (27 in all) and 90 instances. 84 are at the
 v3.1 copy of a v3 site below, with the same disposition, or are the
@@ -257,6 +280,15 @@ sit in `launch` and `mintL2`, which read the factory's
 and in `ToshMintVesting.lock` and `setFactory`, which only call
 `registeredHooks()` and `hookImplementation().mintVesting()`. All are views
 or pure. The idle burn's own mint to 0xdEaD runs after every write.
+
+`ToshBuybackV31` is the 28th source unit and adds 17: six
+`reentrancy-state-change` in its constructor and `setFactory`, which read the
+pair's tokens, the TOSH hook's pool key, the feed's decimals and the factory's
+hook implementation, all views, before storing what they return; the
+file-level pragma and `PUSH0` notes; five literal notes (`1e18` scaling and
+the slot constant); `unchecked-return` on `vault.lock` and `vault.settle`;
+`missing-inheritance`; and `unused-state-variable` on `_PIGGYBACK_SLOT`, which
+like the treasury's is read only inside `assembly`.
 
 Re-baselined on 2026-10-28 against v2. `src/` went from 10 source units to
 14: `ToshBidBook`, `ToshHookLens`, `AgentIdLib`, `WalletLib` and
@@ -326,8 +358,9 @@ encoding. The code already handles the one real version of this concern: the
 silent truncation cannot make two different caps or durations produce the same
 initcode hash.
 
-**`reentrancy-state-change`** — 65, in three groups, none reachable. The
-groups below count the 49 outside `src/v31/`; the 16 there are the v3.1 copies
+**`reentrancy-state-change`** — 71, in three groups, none reachable. The
+groups below count the 49 outside `src/v31/`; of the 22 there, 6 are
+`ToshBuybackV31`'s (above) and 16 are the v3.1 copies
 of the hook's `launch`, `buyGenesis` and constructor sites and the factory's
 `createLaunch`, constructor and `releaseAbandonedName`, one more in `launch`
 and one in `mintL2` (the halt-clock read and the factory's pure `l2Quote`,
@@ -395,7 +428,8 @@ moved behind the Circuit holder's admin window, and the error is kept so the
 ABI does not lose a selector indexers may already match on. Its companion
 `NativeTransferFailed` is in use again, by the BNB refund in `buyGenesis`.
 
-**`unused-state-variable`** — 1, `ToshLadderTreasury._PIGGYBACK_SLOT`. False
+**`unused-state-variable`** — 2, `ToshLadderTreasury._PIGGYBACK_SLOT` and
+`ToshBuybackV31._PIGGYBACK_SLOT`. False
 positive, and the most important one to understand before trusting this
 detector: the constant *is* used, at the `tload` and `tstore` that implement
 the treasury's hand-rolled reentrancy mutex. Aderyn's AST walk does not
@@ -409,7 +443,7 @@ engages — and the answer here is no for all of them. `onlyOwner` and
 `buyGenesis`, `launch`, `mintBondingCurve` and v3.1's `mintL2`, are plain
 storage reads with no call.
 
-**`unchecked-return`** — 18. Each is a return value nobody needs:
+**`unchecked-return`** — 20. Each is a return value nobody needs:
 `vault.lock` and `vault.settle()` return amounts already known to the caller
 (`collectGenesisFees`' callback returns empty bytes), `poolManager.initialize()`
 returns the resulting tick, and `_grantRole()` returns whether the role was
@@ -484,12 +518,12 @@ rather than `_safeMint` means minting the developer's Circuit cannot call
 into the developer's address in the middle of `createLaunch`; a developer
 contract that cannot hold ERC-721s is the developer's choice to make.
 
-**`missing-inheritance`** — 4, `ToshLaunchGateway`, `ToshLaunchGatewayV3`, `CircuitRevenueVault`
-and `ToshMintVesting`, each matching a minimal interface declared elsewhere without importing it.
+**`missing-inheritance`** — 5, `ToshLaunchGateway`, `ToshLaunchGatewayV3`, `CircuitRevenueVault`,
+`ToshMintVesting` and `ToshBuybackV31`, each matching a minimal interface declared elsewhere without importing it.
 Inheriting would pull another contract's interface file in for no behavioural
 change.
 
-**`push-zero-opcode`** (27) and **`unspecific-solidity-pragma`** (20) — both
+**`push-zero-opcode`** (28) and **`unspecific-solidity-pragma`** (21) — both
 follow from `^0.8.24`/`^0.8.26` pragmas plus `evm_version = "cancun"`. PUSH0 is
 intended; Shanghai-or-later is a deployment requirement this project already
 depends on more sharply elsewhere (the transient-storage mutex needs Cancun,
@@ -501,7 +535,7 @@ they initialise; the fifteenth is `ToshLadderTreasury`'s constructor parameter
 `_owner`, which shadows `Ownable`'s private slot and is handed straight to
 `Ownable`'s constructor. Nothing is shadowed at run time.
 
-**`literal-instead-of-constant`** (30), **`large-numeric-literal`** (19),
+**`literal-instead-of-constant`** (34), **`large-numeric-literal`** (20),
 **`modifier-used-only-once`** (11), **`costly-loop`** (8),
 **`require-revert-in-loop`** (10), **`uninitialized-local-variable`** (6) — style
 findings with no behavioural claim. The uninitialised locals are loop counters

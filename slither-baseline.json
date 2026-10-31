@@ -3,34 +3,34 @@
   "_slither": "0.11.6",
   "_filterPaths": "lib/|test/|script/",
   "_generated": "2026-10-31",
-  "contracts": 134,
+  "contracts": 140,
   "detectorsRun": 102,
-  "total": 231,
+  "total": 248,
   "byImpact": {
-    "Informational": 73,
-    "Low": 75,
-    "Medium": 81,
+    "Informational": 76,
+    "Low": 79,
+    "Medium": 91,
     "High": 2
   },
   "byCheck": {
-    "assembly": 17,
+    "assembly": 19,
     "calls-loop": 10,
     "cyclomatic-complexity": 8,
     "dead-code": 1,
-    "divide-before-multiply": 9,
-    "incorrect-equality": 9,
+    "divide-before-multiply": 10,
+    "incorrect-equality": 12,
     "low-level-calls": 4,
     "missing-inheritance": 20,
     "missing-zero-check": 2,
-    "naming-convention": 22,
+    "naming-convention": 23,
     "reentrancy-benign": 10,
-    "reentrancy-events": 18,
+    "reentrancy-events": 21,
     "reentrancy-no-eth": 5,
-    "timestamp": 35,
+    "timestamp": 36,
     "too-many-digits": 1,
     "tx-origin": 3,
     "uninitialized-local": 18,
-    "unused-return": 37,
+    "unused-return": 43,
     "weak-prng": 2
   },
   "findings": [
@@ -151,6 +151,20 @@
       "impact": "Informational",
       "file": "src/v3/ToshLaunchGatewayV3.sol",
       "scope": "ToshLaunchGatewayV3.execute",
+      "count": 1
+    },
+    {
+      "check": "assembly",
+      "impact": "Informational",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31._setPiggyback",
+      "count": 1
+    },
+    {
+      "check": "assembly",
+      "impact": "Informational",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31.piggybackActive",
       "count": 1
     },
     {
@@ -310,6 +324,13 @@
     {
       "check": "divide-before-multiply",
       "impact": "Medium",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31._convertLeg",
+      "count": 1
+    },
+    {
+      "check": "divide-before-multiply",
+      "impact": "Medium",
       "file": "src/v31/ToshLaunchpadHookV31.sol",
       "scope": "ToshLaunchpadHookV31._burnDue",
       "count": 1
@@ -368,6 +389,27 @@
       "impact": "Medium",
       "file": "src/v3/ToshLaunchpadHookV3.sol",
       "scope": "ToshLaunchpadHookV3._sqrtPriceToNativePerToken",
+      "count": 1
+    },
+    {
+      "check": "incorrect-equality",
+      "impact": "Medium",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31._burnLeg",
+      "count": 1
+    },
+    {
+      "check": "incorrect-equality",
+      "impact": "Medium",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31._run",
+      "count": 1
+    },
+    {
+      "check": "incorrect-equality",
+      "impact": "Medium",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31.pokeBuyback",
       "count": 1
     },
     {
@@ -625,6 +667,13 @@
     {
       "check": "naming-convention",
       "impact": "Informational",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31.TRIGGER_STEP",
+      "count": 1
+    },
+    {
+      "check": "naming-convention",
+      "impact": "Informational",
       "file": "src/v31/ToshFactoryV31.sol",
       "scope": "ToshFactoryV31.HOOK_RUNTIME_CODEHASH",
       "count": 1
@@ -767,6 +816,27 @@
       "impact": "Low",
       "file": "src/v3/ToshLaunchpadHookV3.sol",
       "scope": "ToshLaunchpadHookV3.afterSwap",
+      "count": 1
+    },
+    {
+      "check": "reentrancy-events",
+      "impact": "Low",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31._burnLeg",
+      "count": 1
+    },
+    {
+      "check": "reentrancy-events",
+      "impact": "Low",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31._convertLeg",
+      "count": 1
+    },
+    {
+      "check": "reentrancy-events",
+      "impact": "Low",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31._run",
       "count": 1
     },
     {
@@ -998,6 +1068,13 @@
       "impact": "Low",
       "file": "src/v3/ToshLaunchpadHookV3.sol",
       "scope": "ToshLaunchpadHookV3.tierStatus",
+      "count": 1
+    },
+    {
+      "check": "timestamp",
+      "impact": "Low",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31.bnbUsdPrice",
       "count": 1
     },
     {
@@ -1376,6 +1453,41 @@
       "impact": "Medium",
       "file": "src/v3/ToshLaunchpadHookV3.sol",
       "scope": "ToshLaunchpadHookV3.launch",
+      "count": 1
+    },
+    {
+      "check": "unused-return",
+      "impact": "Medium",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31._burnLeg",
+      "count": 2
+    },
+    {
+      "check": "unused-return",
+      "impact": "Medium",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31._convertLeg",
+      "count": 1
+    },
+    {
+      "check": "unused-return",
+      "impact": "Medium",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31._run",
+      "count": 1
+    },
+    {
+      "check": "unused-return",
+      "impact": "Medium",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31.bnbUsdPrice",
+      "count": 1
+    },
+    {
+      "check": "unused-return",
+      "impact": "Medium",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31.pokeBuyback",
       "count": 1
     },
     {
