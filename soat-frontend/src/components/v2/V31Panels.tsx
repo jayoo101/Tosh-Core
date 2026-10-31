@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { zeroHash, type Address } from 'viem'
-import { useAccount, useReadContract } from 'wagmi'
+import { useAccount, usePublicClient, useReadContract } from 'wagmi'
 
 import {
   Card, Field, Readout, ReadoutGrid, revertOrder, useActionGate, useQuoteApproval, useTxAction,
@@ -23,6 +23,13 @@ import { WalletAction } from './WalletAction'
 type State = NonNullable<ReturnType<typeof useGenesisState>['data']>
 
 const SLIPPAGE_BPS = 100n
+
+/**
+ * Added to a `mintL2` estimate. The estimate is the least gas that does not
+ * revert, and at that much the AutoLp add inside the mint runs out in its
+ * try/catch: the mint succeeds but the liquidity waits for a `flush`.
+ */
+const MINT_GAS_HEADROOM = 500_000n
 
 /** The L2 curve: price after decay, supply split three ways, and the two idle clocks. */
 export function L2CurvePanel({ hook, quote, now }: { hook: Address; quote: V2Quote; now: number }) {
@@ -114,6 +121,7 @@ export function L2MintPanel({ hook, s, quote, symbol, onDone }: {
   const approval = useQuoteApproval(hook, pay, quote.asset)
   const refresh = () => { void refetchL2(); void refetchMine(); approval.refetch(); onDone() }
   const tx = useTxAction({ action: t.mintAction, onConfirmed: () => { setRaw(''); refresh() } })
+  const client = usePublicClient({ chainId: TARGET_CHAIN_ID })
 
   const noAgentId = acct !== undefined && acct.registryOk && acct.agentKey === zeroHash
   // With an Agent ID, the factory only reports zero once this ID or wallet has minted.
@@ -124,7 +132,12 @@ export function L2MintPanel({ hook, s, quote, symbol, onDone }: {
   const gate = useActionGate({
     action: t.mintBtn,
     tx,
-    onAct: () => tx.send({ address: hook, abi: V31_HOOK_ABI, functionName: 'mintL2', args }),
+    onAct: async () => {
+      const request = { address: hook, abi: V31_HOOK_ABI, functionName: 'mintL2', args } as const
+      // A failed estimate means the mint would revert; the wallet shows why.
+      const estimate = await client?.estimateContractGas({ ...request, account: address }).catch(() => undefined)
+      tx.send({ ...request, gas: estimate === undefined ? undefined : estimate + MINT_GAS_HEADROOM })
+    },
     blockersInRevertOrder: revertOrder(
       pay > 0n && pay < s.minBuy && {
         id: 'min', active: true, label: t.mintBtn,

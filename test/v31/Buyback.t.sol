@@ -129,6 +129,37 @@ contract BuybackV31Test is V31Base {
         );
     }
 
+    function test_constructor_refusesAVaultOrPoolManagerMismatch() public {
+        vm.expectRevert(ToshBuybackV31.BadVault.selector);
+        new ToshBuybackV31(
+            address(poolManager),
+            address(0xBEEF),
+            address(quote),
+            address(wbnb),
+            address(pair),
+            address(feed),
+            address(toshHook),
+            STEP
+        );
+
+        MockToshHook elsewhere = new MockToshHook();
+        PoolKey memory k = toshKey;
+        k.hooks = IHooks(address(elsewhere));
+        k.poolManager = IPoolManager(address(0xBEEF));
+        elsewhere.setKey(k);
+        vm.expectRevert(ToshBuybackV31.BadPoolKey.selector);
+        new ToshBuybackV31(
+            address(poolManager),
+            address(vault),
+            address(quote),
+            address(wbnb),
+            address(pair),
+            address(feed),
+            address(elsewhere),
+            STEP
+        );
+    }
+
     function test_setFactory_onceByDeployerForItsOwnHooks() public {
         ToshBuybackV31 fresh = new ToshBuybackV31(
             address(poolManager),
@@ -214,6 +245,31 @@ contract BuybackV31Test is V31Base {
         assertEq(wbnb.balanceOf(address(buyback)), 0);
     }
 
+    function test_convert_toleratesOnlyFeeImpactAndSlack() public {
+        // 1.4 % under Chainlink: inside the old flat 2 %, beyond 0.25 % fee + impact + 0.5 %.
+        feed.set(690e8, block.timestamp);
+        quote.mint(address(buyback), 1_000e18);
+        vm.expectEmit(address(buyback));
+        emit ToshBuybackV31.LegSkipped(false, 500e18);
+        buyback.pokeBuyback();
+        assertEq(wbnb.balanceOf(address(buyback)), 0);
+
+        feed.set(697e8, block.timestamp); // 0.68 % under: fee + slack covers it
+        buyback.pokeBuyback();
+        assertGt(wbnb.balanceOf(address(buyback)), 0);
+    }
+
+    function test_poke_convertsWhenTheBurnLegCannotRun() public {
+        wbnb.mint(address(buyback), 0.2e18);
+        quote.mint(address(buyback), 1_000e18);
+        toshHook.setTwap(0); // the burn leg reverts TwapNotMature
+        vm.expectEmit(address(buyback));
+        emit ToshBuybackV31.LegSkipped(true, 0.2e18);
+        buyback.pokeBuyback();
+        assertEq(quote.balanceOf(address(buyback)), 500e18, "converted instead");
+        assertEq(_deadTosh(), 0);
+    }
+
     function test_convert_refusesAStaleOracle() public {
         vm.warp(block.timestamp + 1 hours + 1);
         quote.mint(address(buyback), 1_000e18);
@@ -263,9 +319,14 @@ contract BuybackV31Test is V31Base {
         assertGt(wbnb.balanceOf(address(buyback)), 0, "convert leg rode the swap");
         assertFalse(buyback.piggybackActive());
 
-        vm.roll(block.number + 1);
+        uint256 bnb = wbnb.balanceOf(address(buyback));
+        vm.roll(vm.getBlockNumber() + 1);
         _swapBuy(h, trader, 10e18);
-        assertGt(_deadTosh(), 0, "burn leg rode the next one");
+        assertEq(_deadTosh(), 0, "a swap never carries the burn leg");
+        assertGe(wbnb.balanceOf(address(buyback)), bnb, "it may convert again, never burn");
+
+        buyback.pokeBuyback();
+        assertGt(_deadTosh(), 0, "a poke does, in its own lock");
     }
 
     function test_l2MintFeedsTheBuyback() public {
