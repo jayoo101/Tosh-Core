@@ -110,7 +110,7 @@ contract DeployV31 is Script {
         address gateway;
     }
 
-    function run() external {
+    function run() external virtual {
         uint256 pk = vm.envUint("PRIVATE_KEY");
         Env memory e = _readEnv(pk);
         _validate(e, vm.envUint("TARGET_CHAIN_ID"));
@@ -140,7 +140,11 @@ contract DeployV31 is Script {
     }
 
     function _readEnv(uint256 pk) internal view returns (Env memory e) {
-        e.deployer = vm.addr(pk);
+        return _readEnvFor(vm.addr(pk));
+    }
+
+    function _readEnvFor(address deployer) internal view returns (Env memory e) {
+        e.deployer = deployer;
         e.poolManager = vm.envAddress("INFINITY_CL_POOL_MANAGER");
         e.vault = vm.envAddress("INFINITY_VAULT");
         e.safe = vm.envAddress("PROD_OWNER_SAFE");
@@ -256,8 +260,17 @@ contract DeployV31 is Script {
         _write(s);
     }
 
-    /// @dev Read back from chain: every link the stack's contracts hold to each other.
+    /// @dev Read back right after the broadcast: the links, and the Safe yet to accept.
     function _check(Stack memory s, Env memory e) internal view {
+        _checkLinks(s, e);
+        require(
+            ToshFactoryV31(s.factory).owner() == e.deployer && ToshFactoryV31(s.factory).pendingOwner() == e.safe,
+            "factory pending Safe"
+        );
+    }
+
+    /// @dev Every link the stack's contracts hold to each other and to the environment.
+    function _checkLinks(Stack memory s, Env memory e) internal view {
         ToshFactoryV31 f = ToshFactoryV31(s.factory);
         ToshLaunchpadHookV31 impl = ToshLaunchpadHookV31(payable(s.hookImplementation));
         require(f.hookImplementation() == s.hookImplementation, "factory -> impl");
@@ -273,7 +286,54 @@ contract DeployV31 is Script {
         require(ToshBidBook(s.bidBook).initialized(), "book initialized");
         require(ToshBidBook(s.bidBook).factories()[0] == s.factory, "book -> factory");
         require(address(ToshLaunchGatewayV3(s.gateway).factory()) == s.factory, "gateway -> factory");
-        require(f.owner() == e.deployer && f.pendingOwner() == e.safe, "factory pending Safe");
+        require(address(ToshLaunchGatewayV3(s.gateway).safe()) == e.safe, "gateway -> safe");
+    }
+
+    /// @dev The live stack against the environment and parameters it was meant
+    ///      to have, at whichever ownership stage it has reached. Reverts on
+    ///      anything else.
+    function _verify(Stack memory s, Env memory e, Params memory p) internal view returns (string memory stage) {
+        require(
+            s.bidBook.code.length > 0 && s.lens.code.length > 0 && s.buyback.code.length > 0 && s.autoLp.code.length > 0
+                && s.vesting.code.length > 0 && s.hookImplementation.code.length > 0 && s.factory.code.length > 0
+                && s.gateway.code.length > 0,
+            "a recorded address holds no code"
+        );
+        _checkLinks(s, e);
+
+        ToshFactoryV31 f = ToshFactoryV31(s.factory);
+        require(address(f.quoteAsset()) == e.usdt && !f.acceptsNative(), "factory quote asset");
+        require(
+            f.agentRegistry() == e.registry && address(f.poolManager()) == e.poolManager, "factory registry, manager"
+        );
+        require(f.minBuy() == p.minBuy && f.shelfCapPerAgent() == p.shelfCap, "factory min buy, shelf cap");
+        require(f.minHardCap() == p.minHardCap && f.maxHardCap() == p.maxHardCap, "factory hard cap bounds");
+        require(f.minAgentCap() == p.minAgentCap && f.maxAgentCap() == p.maxAgentCap, "factory agent cap bounds");
+        require(ToshBidBook(s.bidBook).feeRecipient() == e.feeRecipient, "book fee recipient");
+
+        ToshBuybackV31 b = ToshBuybackV31(s.buyback);
+        require(b.TRIGGER_STEP() == p.triggerStep, "buyback trigger step");
+        require(address(b.poolManager()) == e.poolManager && address(b.vault()) == e.vault, "buyback manager, vault");
+        require(address(b.usdt()) == e.usdt && address(b.wbnb()) == e.wbnb, "buyback assets");
+        require(
+            address(b.pair()) == e.pair && address(b.bnbUsdFeed()) == e.feed && b.toshHook() == e.toshHook,
+            "buyback venues"
+        );
+        (,, uint64 readyAt) = b.pendingRescue();
+        require(readyAt == 0, "a rescue is pending on the buyback");
+
+        address owner = f.owner();
+        address pending = f.pendingOwner();
+        if (owner == s.gateway) {
+            require(pending == address(0), "gateway-owned factory with a pending transfer");
+            return "owned by the gateway (Safe-controlled)";
+        }
+        if (owner == e.safe) {
+            require(pending == address(0), "Safe-owned factory with a pending transfer");
+            return "owned by the Safe; gateway handoff not done yet";
+        }
+        require(pending == e.safe, "factory is neither the Safe's nor pending to it");
+        return "owned by the deployer, pending the Safe's acceptOwnership";
     }
 
     function _log(Stack memory s) internal pure {

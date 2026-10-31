@@ -55,6 +55,10 @@ contract DeployV31Harness is DeployV31 {
     function stack() external view returns (Stack memory) {
         return _s;
     }
+
+    function verify(Stack memory s, Env memory e, Params memory p) external view returns (string memory) {
+        return _verify(s, e, p);
+    }
 }
 
 /// @notice `script/DeployV31.s.sol` end to end against a local Infinity: every
@@ -339,6 +343,51 @@ contract DeployV31Test is Test {
             address(gw), abi.encodeCall(gw.execute, (abi.encodeCall(ToshFactoryV31.setShelfCapPerAgent, (300e18))))
         );
         assertEq(f.shelfCapPerAgent(), 300e18);
+    }
+
+    function test_verifyV31_readsEachOwnershipStageAndRefusesDrift() public {
+        DeployV31Harness h = new DeployV31Harness();
+        DeployV31.Params memory p = h.defaults();
+        h.deployWith(PK, _e(), 97, p);
+        DeployV31.Stack memory s = h.stack();
+        ToshFactoryV31 f = ToshFactoryV31(s.factory);
+        ToshLaunchGatewayV3 gw = ToshLaunchGatewayV3(s.gateway);
+
+        assertEq(h.verify(s, _e(), p), "owned by the deployer, pending the Safe's acceptOwnership");
+        safe.exec(s.factory, abi.encodeWithSignature("acceptOwnership()"));
+        assertEq(h.verify(s, _e(), p), "owned by the Safe; gateway handoff not done yet");
+        safe.exec(s.factory, abi.encodeCall(f.transferOwnership, (address(gw))));
+        vm.expectRevert("Safe-owned factory with a pending transfer");
+        h.verify(s, _e(), p);
+        safe.exec(address(gw), abi.encodeCall(gw.execute, (abi.encodeWithSignature("acceptOwnership()"))));
+        assertEq(h.verify(s, _e(), p), "owned by the gateway (Safe-controlled)");
+
+        DeployV31.Params memory q = h.defaults();
+        q.shelfCap = 300e18;
+        vm.expectRevert("factory min buy, shelf cap");
+        h.verify(s, _e(), q);
+        q = h.defaults();
+        q.triggerStep = 1e18;
+        vm.expectRevert("buyback trigger step");
+        h.verify(s, _e(), q);
+
+        DeployV31.Env memory e = _e();
+        e.feed = makeAddr("otherFeed");
+        vm.expectRevert("buyback venues");
+        h.verify(s, e, p);
+        e = _e();
+        e.feeRecipient = makeAddr("otherRecipient");
+        vm.expectRevert();
+        h.verify(s, e, p);
+
+        vm.prank(address(safe));
+        ToshBuybackV31(s.buyback).requestRescue(address(usdt), address(safe));
+        vm.expectRevert("a rescue is pending on the buyback");
+        h.verify(s, _e(), p);
+
+        s.lens = makeAddr("empty");
+        vm.expectRevert("a recorded address holds no code");
+        h.verify(s, _e(), p);
     }
 
     function _salt(ToshFactoryV31 f, uint256 hardCap) internal view returns (bytes32 raw) {
