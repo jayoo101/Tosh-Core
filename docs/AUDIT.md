@@ -10,7 +10,7 @@ firing without somebody deciding about it. Neither gate is advisory.
 | Baseline | `slither-baseline.json` | `aderyn-baseline.json` |
 | Gate | `scripts/checkSlitherFindings.mjs` | `scripts/checkAderynFindings.mjs` |
 | Scope | `src/` (`--filter-paths lib/\|test/\|script/`) | `src/` (inferred from `foundry.toml`) |
-| Current | 184 findings, 2H/65M/59L/58I | 284 findings, 55H/229L |
+| Current | 230 findings, 2H/81M/75L/72I | 371 findings, 74H/297L |
 | Runtime | ~15 s, plus a slower `pip install` | ~6 s, no compile of its own |
 
 The current counts include `src/v3/`: the token, hook, factory and lens now
@@ -18,6 +18,11 @@ live on BNB Smart Chain `56` (deployed 2026-10-29 at block 130426789,
 `deployments/v3-56.json`), plus the new `ToshAutoLp`. Its files began as copies of the v2 ones, so most
 of its findings are the v2 findings below under a V3 file name, with the same
 disposition; the differences are noted at the end of each section.
+
+They also include `src/v31/`, the v3.1 contracts, which are not deployed yet:
+the v3 hook, factory and token copied and given a continuous L2 curve with
+Dutch decay, one L2 mint per Agent ID and wallet, and a 12-hour vesting
+contract. Each analyser's v3.1 findings have their own section.
 
 ## Why both
 
@@ -197,20 +202,70 @@ The last 9 are `ToshLaunchGatewayV3`, the gateway plus a permanent shelf halt:
   interface, and `ToshFactory` and `ToshFactoryV3` match the gateway's own
   `IToshFactoryV3Gate`, none of them imported.
 
+### Slither: v3.1 (`src/v31/`, not deployed)
+
+46 findings: 230 against 184 before. 34 sit at the v3.1 copy of a v3 site
+above with the same disposition: the third `tx-origin`
+(`ToshTokenV31._update`), the hook's `uninitialized-local` and
+`unused-return` set, the factory's `createLaunch` reentrancy findings, the
+clock reads in `buyGenesis`, `launch`, `genesisBlocked` and
+`releaseAbandonedName`, and the naming and missing-inheritance notes on the
+copied interfaces. One more `missing-inheritance` lands on `ToshFactoryV3`,
+which now also matches `ToshMintVesting`'s two-function factory interface.
+
+`_twapSqrtPriceX96`, `_writeObservation` and `launchStart` are byte-for-byte
+the v3 functions, and Slither reports their `weak-prng` and `timestamp`
+findings once, on the v3 copy, rather than again under `src/v31/`. The same
+identity runs the other way for `_sqrt`, which it calls dead code in the v3.1
+hook although `launch` reaches it through `_toSqrtPriceX96`, exactly as in v3.
+The dispositions above cover both copies. The other 12 are new:
+
+- **`timestamp`** — `l2Price`, `ToshFactoryV31._haltedSeconds` and
+  `ToshMintVesting._vested` / `claim`. The L2 price falls 0.1 % per whole
+  unhalted minute since the last mint, the factory counts halted seconds, and
+  vesting releases 1/720 per whole minute. Validator skew of seconds moves at
+  most one step, which nobody can hold.
+- **`divide-before-multiply`** — `ToshMintVesting._vested` floors the elapsed
+  time to whole minutes before scaling the total. That is the schedule: a
+  step unlocks only when its minute is complete.
+- **`incorrect-equality`** — `ToshMintVesting.claim` (`amount == 0`). A zero
+  check that refuses an empty claim.
+- **`unused-return`** — `ToshHookLensV31.quoteL2` reads only `minted` from
+  the hook's `l2State`; the price comes from `l2Price`, which applies the
+  decay and the halt clock.
+- **`missing-inheritance`** — `ToshFactoryV31`, `ToshLaunchpadHookV31` and
+  `ToshMintVesting` each match an interface declared elsewhere without
+  importing it, the same shape as v3.
+- **`cyclomatic-complexity`** — `buyGenesis`, as in v2 and v3.
+- **`dead-code`** — `_sqrt`, explained above.
+
 ## Aderyn disposition record
 
-23 detectors, 284 instances, all triaged, nothing unresolved.
+23 detectors, 371 instances, all triaged, nothing unresolved.
+
+`src/v31/` adds six source units (27 in all) and 87 instances. 83 are at the
+v3.1 copy of a v3 site below, with the same disposition, or are the
+file-level pragma and `PUSH0` notes on the new files. The v3.1 hook's private
+interfaces carry a V31 suffix so they do not reuse the v3 names. The other 4:
+`unsafe-casting` ×3 (the L2 curve slot and the factory's halt clock, below)
+and `missing-inheritance` on `ToshMintVesting`, which matches the factory
+without importing it. `mintL2` writes the curve before its one factory call,
+so like `mintBondingCurve` it has no `reentrancy-state-change`; the new ones
+sit in `launch`, which reads the factory's `ladderHaltedSeconds()` once the
+pool is seeded, and in `ToshMintVesting.lock` and `setFactory`, which only
+call `registeredHooks()` and `hookImplementation().mintVesting()`. All are
+views.
 
 Re-baselined on 2026-10-28 against v2. `src/` went from 10 source units to
 14: `ToshBidBook`, `ToshHookLens`, `AgentIdLib`, `WalletLib` and
 `GenesisCurve` arrived, and `HookDeployLib` left. Three detectors fired for the
 first time:
 
-**`tx-origin-used-for-auth`** — 2, `ToshToken._update` and its v3 copy. The pre-launch
+**`tx-origin-used-for-auth`** — 3, `ToshToken._update` and its v3 and v3.1 copies. The pre-launch
 transfer rule described under Slither's `tx-origin` above. It narrows what a
 transfer may do and grants nothing.
 
-**`unsafe-erc20-operation`** — 2, `ToshToken.approve` and its v3 copy. False positive. The line
+**`unsafe-erc20-operation`** — 3, `ToshToken.approve` and its v3 and v3.1 copies. False positive. The line
 is `super.approve` inside the token's own override, which refuses approvals to
 anyone but the bid book before launch; it is not a call into some other token
 whose return value could be dropped.
@@ -269,7 +324,12 @@ encoding. The code already handles the one real version of this concern: the
 silent truncation cannot make two different caps or durations produce the same
 initcode hash.
 
-**`reentrancy-state-change`** — 49, in three groups, none reachable:
+**`reentrancy-state-change`** — 64, in three groups, none reachable. The
+groups below count the 49 outside `src/v31/`; the 15 there are the v3.1 copies
+of the hook's `launch`, `buyGenesis` and constructor sites and the factory's
+`createLaunch`, constructor and `releaseAbandonedName`, one more in `launch`
+(the halt-clock read), plus `ToshMintVesting.lock` and `setFactory`, which
+call only views:
 
 - 18 are inside `nonReentrant` functions: `ToshBidBook.placeBid` ×5 and
   `fill` ×4, `ToshFactory.createLaunch` ×3, and on the hook `launch` ×4,
@@ -294,12 +354,24 @@ permissionless and takes an address argument: its first statement is
 `if (!registeredHooks[hook]) revert HookNotRegistered()`, so the callee is
 always a clone this factory deployed, never caller-supplied code.
 
-**`unsafe-casting`** — 1, `ToshLadderTreasury._buybackSqrtFloor`. Cannot
+**`unsafe-casting`** — 4. One is `ToshLadderTreasury._buybackSqrtFloor`. Cannot
 truncate. The cast is `uint160(floor)` where
 `floor = twapSqrt × (BPS_DENOMINATOR − MAX_BUYBACK_SQRT_DEVIATION_BPS) /
 BPS_DENOMINATOR`, `twapSqrt` is already `uint160`, and both constants are
 `constant` — 10 000 and 1 000 — so the factor is a compile-time 0.9. `floor`
 is strictly smaller than a value that already fits.
+
+Two pack the v3.1 L2 curve into one slot, in `launch` and `mintL2`.
+`price` is a `uint128`: without decay the curve tops out at 247 × p0, decay
+only lowers it, and p0 ≤ 2 × hardCap / 225M, which is about 1.8e14 at the
+20 000 USDT ceiling against 3.4e38. `minted` is a `uint96` and never exceeds
+`l2Supply` ≤ 7.3e26 against 7.9e28. `at` is a `uint32` timestamp, good to
+2106.
+
+The last is `ToshFactoryV31.haltLadderMinting`, which stores the halt clock as
+`uint64` timestamps and a `uint128` running total: `until` is now plus at most
+`MAX_HALT_DURATION`, and the total can grow by at most the seconds that have
+passed since deployment.
 
 ### Low
 
@@ -325,20 +397,22 @@ the treasury's hand-rolled reentrancy mutex. Aderyn's AST walk does not
 descend into `assembly` blocks. Read as written, this finding says the mutex
 is dead code.
 
-**`non-reentrant-not-first`** — 8. The detector asks a real question — whether
+**`non-reentrant-not-first`** — 12. The detector asks a real question — whether
 a modifier ahead of `nonReentrant` can make an external call before the guard
-engages — and the answer here is no for all four. `onlyOwner` and
+engages — and the answer here is no for all of them. `onlyOwner` and
 `whenNotPaused` on `createLaunch`, and `initialized` on the hook's
-`buyGenesis`, `launch` and `mintBondingCurve`, are plain storage reads with no
-call.
+`buyGenesis`, `launch`, `mintBondingCurve` and v3.1's `mintL2`, are plain
+storage reads with no call.
 
-**`unchecked-return`** — 13. Each is a return value nobody needs:
+**`unchecked-return`** — 18. Each is a return value nobody needs:
 `vault.lock` and `vault.settle()` return amounts already known to the caller
 (`collectGenesisFees`' callback returns empty bytes), `poolManager.initialize()`
 returns the resulting tick, and `_grantRole()` returns whether the role was
 newly granted inside the token's run-once `initialize`.
 
-**`centralization-risk`** — 36. Accurate and by design. Mainnet ownership is a
+**`centralization-risk`** — 52. Accurate and by design. The v3.1 factory and
+token add 16 copies of the v3 sites described here; v3.1 is not deployed, and
+will be owned the same way. Mainnet ownership is a
 2-of-3 Gnosis Safe (SafeL2 1.4.1, `0x02DE4629129D104C63329D13A6Ca67E43db7B310`).
 Each v3 factory is owned by its `ToshLaunchGateway` — BNB
 `0x790091e8965eCc1adfA40AA9b95515C6289dCE9d`, USDT
@@ -393,10 +467,10 @@ life: the minter cannot be changed, added to, or taken away by anyone,
 including the platform. Supply is bounded independently by the `MAX_SUPPLY`
 check inside `mint`, and there is deliberately no kill-switch.
 
-**`unused-public-function`** — 20: on the hook `creator`, `projectTreasury`,
+**`unused-public-function`** — 26: on the hook `creator`, `projectTreasury`,
 `currentTierIndex`, `currentTierSold`, `phase2Minted`, `currentGenesisPrice`,
-`maxMintable` and `lastSwapBlock`, and on the lens `basePrice` and
-`publicLaunchAt`. Read by the frontend, by `scripts/dashboard`, and — for
+`maxMintable` and `lastSwapBlock`, and on the lens
+`basePrice` and `publicLaunchAt`. Read by the frontend, by `scripts/dashboard`, and — for
 `currentGenesisPrice` — by the bid book through an interface, none of which is
 visible to a tool that only sees `src/` by name.
 
@@ -405,25 +479,25 @@ rather than `_safeMint` means minting the developer's Circuit cannot call
 into the developer's address in the middle of `createLaunch`; a developer
 contract that cannot hold ERC-721s is the developer's choice to make.
 
-**`missing-inheritance`** — 3, `ToshLaunchGateway`, `ToshLaunchGatewayV3` and `CircuitRevenueVault`,
-each matching a minimal interface declared elsewhere without importing it.
+**`missing-inheritance`** — 4, `ToshLaunchGateway`, `ToshLaunchGatewayV3`, `CircuitRevenueVault`
+and `ToshMintVesting`, each matching a minimal interface declared elsewhere without importing it.
 Inheriting would pull another contract's interface file in for no behavioural
 change.
 
-**`push-zero-opcode`** (21) and **`unspecific-solidity-pragma`** (15) — both
+**`push-zero-opcode`** (27) and **`unspecific-solidity-pragma`** (20) — both
 follow from `^0.8.24`/`^0.8.26` pragmas plus `evm_version = "cancun"`. PUSH0 is
 intended; Shanghai-or-later is a deployment requirement this project already
 depends on more sharply elsewhere (the transient-storage mutex needs Cancun,
 verified by execution against chain 56 — see `foundry.toml`).
 
-**`local-variable-shadowing`** (30) — 14 are the fields of `ToshFactory.Config`,
+**`local-variable-shadowing`** (45; the v3 and v3.1 factories repeat the v2 set) — 14 are the fields of `ToshFactory.Config`,
 the constructor's argument struct, which are named after the state variables
 they initialise; the fifteenth is `ToshLadderTreasury`'s constructor parameter
 `_owner`, which shadows `Ownable`'s private slot and is handed straight to
 `Ownable`'s constructor. Nothing is shadowed at run time.
 
-**`literal-instead-of-constant`** (28), **`large-numeric-literal`** (16),
-**`modifier-used-only-once`** (9), **`costly-loop`** (6),
+**`literal-instead-of-constant`** (30), **`large-numeric-literal`** (19),
+**`modifier-used-only-once`** (11), **`costly-loop`** (8),
 **`require-revert-in-loop`** (10), **`uninitialized-local-variable`** (6) — style
 findings with no behavioural claim. The uninitialised locals are loop counters
 starting at zero; the loops that revert are batch operations (the bid book's
