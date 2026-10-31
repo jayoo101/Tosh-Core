@@ -270,7 +270,8 @@ jobs:
           # 448 -> 466: test/v3/LaunchGatewayV3 (16) and ForkGatewayV3Bsc (2; return early without BSC_RPC).
           # 466 -> 493: test/v31/L2Mint, the v3.1 curve, decay, quota and vesting (27).
           # 493 -> 500: test/v31/L2Mint, the idle burn (7).
-          floor=500
+          # 500 -> 515: test/v31/Buyback (13) and ForkBuybackV31Bsc (2; return early without BSC_RPC).
+          floor=515
 
           read_count() {
             grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'

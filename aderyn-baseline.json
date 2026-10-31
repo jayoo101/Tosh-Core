@@ -3,38 +3,38 @@
   "_aderyn": "0.6.8",
   "_scope": "src/ — inferred from foundry.toml, which excludes lib/, test/ and script/",
   "_generated": "2026-10-31",
-  "sourceUnits": 27,
-  "sloc": 5769,
+  "sourceUnits": 28,
+  "sloc": 6016,
   "detectorsRun": 88,
-  "total": 374,
+  "total": 391,
   "byImpact": {
-    "High": 77,
-    "Low": 297
+    "High": 83,
+    "Low": 308
   },
   "byCheck": {
     "abi-encode-packed-hash-collision": 3,
     "centralization-risk": 52,
     "costly-loop": 8,
     "internal-function-used-once": 2,
-    "large-numeric-literal": 19,
-    "literal-instead-of-constant": 30,
+    "large-numeric-literal": 20,
+    "literal-instead-of-constant": 34,
     "local-variable-shadowing": 45,
-    "missing-inheritance": 4,
+    "missing-inheritance": 5,
     "modifier-used-only-once": 11,
     "non-reentrant-not-first": 12,
-    "push-zero-opcode": 27,
-    "reentrancy-state-change": 65,
+    "push-zero-opcode": 28,
+    "reentrancy-state-change": 71,
     "require-revert-in-loop": 10,
     "tx-origin-used-for-auth": 3,
-    "unchecked-return": 18,
+    "unchecked-return": 20,
     "uninitialized-local-variable": 6,
     "unsafe-casting": 6,
     "unsafe-erc20-operation": 3,
     "unsafe-oz-erc721-mint": 1,
-    "unspecific-solidity-pragma": 20,
+    "unspecific-solidity-pragma": 21,
     "unused-error": 2,
     "unused-public-function": 26,
-    "unused-state-variable": 1
+    "unused-state-variable": 2
   },
   "findings": [
     {
@@ -537,6 +537,13 @@
     {
       "check": "large-numeric-literal",
       "impact": "Low",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31",
+      "count": 1
+    },
+    {
+      "check": "large-numeric-literal",
+      "impact": "Low",
       "file": "src/v31/ToshLaunchpadHookV31.sol",
       "scope": "ToshLaunchpadHookV31",
       "count": 3
@@ -691,6 +698,27 @@
     {
       "check": "literal-instead-of-constant",
       "impact": "Low",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31._convertLeg",
+      "count": 1
+    },
+    {
+      "check": "literal-instead-of-constant",
+      "impact": "Low",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31.bnbUsdPrice",
+      "count": 1
+    },
+    {
+      "check": "literal-instead-of-constant",
+      "impact": "Low",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31.constructor",
+      "count": 2
+    },
+    {
+      "check": "literal-instead-of-constant",
+      "impact": "Low",
       "file": "src/v31/ToshFactoryV31.sol",
       "scope": "ToshFactoryV31.liftBlacklist",
       "count": 1
@@ -749,6 +777,13 @@
       "impact": "Low",
       "file": "src/v3/ToshLaunchGatewayV3.sol",
       "scope": "ToshLaunchGatewayV3.getOwners",
+      "count": 1
+    },
+    {
+      "check": "missing-inheritance",
+      "impact": "Low",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31",
       "count": 1
     },
     {
@@ -1076,6 +1111,13 @@
     {
       "check": "push-zero-opcode",
       "impact": "Low",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "<file>",
+      "count": 1
+    },
+    {
+      "check": "push-zero-opcode",
+      "impact": "Low",
       "file": "src/v31/ToshFactoryV31.sol",
       "scope": "<file>",
       "count": 1
@@ -1247,6 +1289,20 @@
       "file": "src/v3/ToshLaunchpadHookV3.sol",
       "scope": "ToshLaunchpadHookV3.launch",
       "count": 4
+    },
+    {
+      "check": "reentrancy-state-change",
+      "impact": "High",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31.constructor",
+      "count": 5
+    },
+    {
+      "check": "reentrancy-state-change",
+      "impact": "High",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31.setFactory",
+      "count": 1
     },
     {
       "check": "reentrancy-state-change",
@@ -1477,6 +1533,20 @@
       "impact": "Low",
       "file": "src/v3/ToshTokenV3.sol",
       "scope": "ToshTokenV3.initialize",
+      "count": 1
+    },
+    {
+      "check": "unchecked-return",
+      "impact": "Low",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31._burnLeg",
+      "count": 1
+    },
+    {
+      "check": "unchecked-return",
+      "impact": "Low",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31.pokeBuyback",
       "count": 1
     },
     {
@@ -1720,6 +1790,13 @@
     {
       "check": "unspecific-solidity-pragma",
       "impact": "Low",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "<file>",
+      "count": 1
+    },
+    {
+      "check": "unspecific-solidity-pragma",
+      "impact": "Low",
       "file": "src/v31/ToshFactoryV31.sol",
       "scope": "<file>",
       "count": 1
@@ -1953,6 +2030,13 @@
       "impact": "Low",
       "file": "src/ToshLadderTreasury.sol",
       "scope": "ToshLadderTreasury",
+      "count": 1
+    },
+    {
+      "check": "unused-state-variable",
+      "impact": "Low",
+      "file": "src/v31/ToshBuybackV31.sol",
+      "scope": "ToshBuybackV31",
       "count": 1
     }
   ]
