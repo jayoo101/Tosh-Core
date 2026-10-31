@@ -1404,7 +1404,8 @@ contract ToshLaunchpadHookV31 is ICLHooks, ILockCallback, ReentrancyGuard {
 
         uint256 price;
         (tokens, cost, price) = f.l2Quote(l2Price(), supply - left, supply, pay);
-        if (tokens == 0) revert ZeroAmount();
+        // A quote past `left` would underflow `_burnDue` for good.
+        if (tokens == 0 || tokens > left || cost > pay) revert ZeroAmount();
         if (tokens < minTokens) revert BelowMinTokens();
 
         // EFFECTS
@@ -2224,14 +2225,14 @@ contract ToshLaunchpadHookV31 is ICLHooks, ILockCallback, ReentrancyGuard {
     }
 
     /// @notice This pool's TWAP as a Q64.96 sqrt price, or 0 before the first
-    ///         observation window has closed.
+    ///         observation window has closed or in a block the pool has
+    ///         already traded in.
     ///
-    /// @dev    Exposed for the platform buyback, which needs a reference that a
-    ///         sandwicher cannot move inside one block.  Spot is exactly what
-    ///         such an attacker manipulates, so bounding a buyback against spot
-    ///         would ratify the manipulation rather than resist it.
+    /// @dev    Read by `ToshAutoLp`, whose `deposit` from `mintL2` has no
+    ///         same-block check of its own: a 0 here defers the add to a later
+    ///         `flush` rather than buying into a price moved this block.
     function twapSqrtPriceX96() external view returns (uint160) {
-        return _twapSqrtPriceX96();
+        return _lastSwapBlock >= block.number ? 0 : _twapSqrtPriceX96();
     }
 }
 

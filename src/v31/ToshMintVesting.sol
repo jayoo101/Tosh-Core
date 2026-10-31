@@ -92,13 +92,24 @@ contract ToshMintVesting {
 
     /// @notice Send the caller everything unlocked so far on `hook`.
     function claim(address hook) external returns (uint256 amount) {
-        Lock storage l = _locks[hook][msg.sender];
+        return _claim(hook, msg.sender);
+    }
+
+    /// @notice Send `account` everything unlocked so far on `hook`. Anyone may
+    ///         call it, for a minter that cannot make the call itself; the
+    ///         tokens only ever go to `account`.
+    function claimFor(address hook, address account) external returns (uint256 amount) {
+        return _claim(hook, account);
+    }
+
+    function _claim(address hook, address account) internal returns (uint256 amount) {
+        Lock storage l = _locks[hook][account];
         amount = _vested(l) - l.claimed;
         if (amount == 0) revert NothingToClaim();
         // forge-lint: disable-next-line(unsafe-typecast) — amount ≤ total, a uint128
         l.claimed += uint128(amount);
-        IERC20(IToshMintVestingHook(hook).projectToken()).safeTransfer(msg.sender, amount);
-        emit Claimed(hook, msg.sender, amount);
+        IERC20(IToshMintVestingHook(hook).projectToken()).safeTransfer(account, amount);
+        emit Claimed(hook, account, amount);
     }
 
     /// @notice `account`'s record on `hook`, plus what it may claim now.
