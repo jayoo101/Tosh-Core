@@ -58,9 +58,37 @@ errors.sort((a, b) => a.name.localeCompare(b.name))
 v3 += `/** Revert reasons a v3 shelf mint can surface from the lens or the factory. */\n`
 v3 += `export const V3_ERRORS_ABI = ${JSON.stringify(errors, null, 2)} as const\n`
 
+// v3.1 replaces the shelf ladder with one curve, so its L2 surface is read
+// through these alone. The genesis and launch calls encode as in v2, except
+// the lens's `genesisState`, which drops `acceptsNative`.
+const V31_PARTS = [
+  ['ToshLaunchpadHookV31', 'V31_HOOK_ABI', ['mintL2', 'settleL2Burn', 'l2Price', 'l2Remaining', 'l2Quota', 'l2State', 'l2Supply', 'p0', 'mintVesting']],
+  ['ToshHookLensV31', 'V31_LENS_ABI', ['genesisState', 'quoteL2', 'l2State', 'l2Account']],
+  ['ToshMintVesting', 'V31_VESTING_ABI', ['claim', 'lockOf', 'DURATION']],
+  ['ToshFactoryV31', 'V31_FACTORY_ABI', ['registeredHooks', 'shelfCapPerAgent']],
+]
+let v31 = header
+for (const [name, exportName, fns] of V31_PARTS) {
+  const items = abiOf(name).filter((it) => it.type === 'function' && fns.includes(it.name))
+  v31 += `export const ${exportName} = ${JSON.stringify(items, null, 2)} as const\n\n`
+}
+const seen31 = new Set()
+const errors31 = []
+for (const name of ['ToshLaunchpadHookV31', 'ToshFactoryV31', 'ToshMintVesting']) {
+  for (const it of abiOf(name)) {
+    if (it.type !== 'error' || seen31.has(it.name)) continue
+    seen31.add(it.name)
+    errors31.push(it)
+  }
+}
+errors31.sort((a, b) => a.name.localeCompare(b.name))
+v31 += `/** Revert reasons a v3.1 L2 mint or vesting claim can surface. */\n`
+v31 += `export const V31_ERRORS_ABI = ${JSON.stringify(errors31, null, 2)} as const\n`
+
 const targets = [
   [resolve(here, '../src/lib/v2/abis.ts'), v2],
   [resolve(here, '../src/lib/v2/abisV3.ts'), v3],
+  [resolve(here, '../src/lib/v2/abisV31.ts'), v31],
 ]
 
 if (process.argv.includes('--check')) {

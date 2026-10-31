@@ -22,7 +22,8 @@ import { fill, useT } from '@/i18n'
 import { TARGET_CHAIN_ID } from '@/lib/chain'
 import { V2_HOOK_ABI, V2_LENS_ABI } from '@/lib/v2/abis'
 import { IS_V3, V2, V2_LENS, hasSpotShelfGate, v2Quote, type V2Quote } from '@/lib/v2/config'
-import { useAccountState, useGenesisState, useShelfQuote, useShelfRemaining } from '@/lib/v2/useV2'
+import { useAccountState, useGenesisState, useIsV31Hook, useShelfQuote, useShelfRemaining } from '@/lib/v2/useV2'
+import { L2CurvePanel, L2MintPanel, V31Rules, V31Tokenomics, VestingPanel } from './V31Panels'
 import { BidMarket } from './BidMarket'
 import { fmtSig, fmtTime, parseAmount } from './fmt'
 import { GenesisBuyPanel } from './GenesisBuyPanel'
@@ -46,6 +47,7 @@ export function V2Terminal({ hook, symbol, header }: {
 }) {
   const tx = useT().x
   const { data: s, refetch } = useGenesisState(hook)
+  const v31 = useIsV31Hook(hook) === true
   const now = useNow()
   const { address } = useAccount()
   const agent = useAgentAddress()
@@ -70,10 +72,11 @@ export function V2Terminal({ hook, symbol, header }: {
   const isInsider = [address, agent].some(a => !!a && insiders.includes(a.toLowerCase()))
 
   // After launch the book only takes cancellations, and those live on /market.
+  // The live book predates v3.1 and does not serve its hooks.
   const tabs = [
-    ...(s.launched ? [] : [{ id: 'market', label: tx.tabMarket, content: <BidMarket hook={hook} symbol={symbol} embedded /> }]),
-    { id: 'tokenomics', label: tx.tabTokenomics, content: <Tokenomics s={s} quote={quote} /> },
-    { id: 'rules', label: tx.tabRules, content: <Rules s={s} quote={quote} /> },
+    ...(s.launched || v31 ? [] : [{ id: 'market', label: tx.tabMarket, content: <BidMarket hook={hook} symbol={symbol} embedded /> }]),
+    { id: 'tokenomics', label: tx.tabTokenomics, content: v31 ? <V31Tokenomics s={s} /> : <Tokenomics s={s} quote={quote} /> },
+    { id: 'rules', label: tx.tabRules, content: v31 ? <V31Rules s={s} quote={quote} /> : <Rules s={s} quote={quote} /> },
     ...(!isInsider ? [] : [{
       id: 'fund', label: tx.tabFund,
       content: (
@@ -92,7 +95,7 @@ export function V2Terminal({ hook, symbol, header }: {
         <div className="flex min-w-0 flex-col gap-6">
           <GenesisStatGrid s={s} quote={quote} now={now} phase={phase} />
           {s.launched ? (
-            <ShelfLadder hook={hook} quote={quote} />
+            v31 ? <L2CurvePanel hook={hook} quote={quote} now={now} /> : <ShelfLadder hook={hook} quote={quote} />
           ) : (
             <Panel title={tx.curveTitle}>
               <GenesisCurveChart p={p} sold={toNum(s.sold)} quote={quote.symbol} />
@@ -102,8 +105,10 @@ export function V2Terminal({ hook, symbol, header }: {
           <ProjectTabs tabs={tabs} />
         </div>
         <aside className="flex flex-col gap-6 lg:sticky lg:top-20 lg:self-start">
+          {s.launched && v31 && <L2MintPanel hook={hook} s={s} quote={quote} symbol={symbol} onDone={() => void refetch()} />}
+          {v31 && <VestingPanel hook={hook} symbol={symbol} now={now} />}
           {s.launched
-            ? <ShelfPanel hook={hook} quote={quote} symbol={symbol} />
+            ? !v31 && <ShelfPanel hook={hook} quote={quote} symbol={symbol} />
             : <GenesisBuyPanel hook={hook} quote={quote} open={genesisOpen} ended={phase === 'ENDED'} symbol={symbol} />}
           <LaunchPanel hook={hook} s={s} quote={quote} now={now} onDone={() => void refetch()} />
           {!s.launched && <TransferPanel token={s.token} symbol={symbol} />}

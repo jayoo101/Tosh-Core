@@ -7,7 +7,8 @@ import { usePublicClient, useReadContract, useReadContracts } from 'wagmi'
 import { TARGET_CHAIN_ID } from '@/lib/chain'
 import { V2_BIDBOOK_ABI, V2_HOOK_ABI, V2_LENS_ABI } from './abis'
 import { V3_FACTORY_EXTRA_ABI, V3_LENS_EXTRA_ABI } from './abisV3'
-import { IS_V3, V2_BIDBOOK, V2_ENABLED, V2_FROM_BLOCK, V2_LENS } from './config'
+import { V31_FACTORY_ABI, V31_LENS_ABI } from './abisV31'
+import { IS_V3, V2_BIDBOOK, V2_ENABLED, V2_FROM_BLOCK, V2_LENS, V31_ENABLED, V31_FACTORY, V31_LENS } from './config'
 import type { LiveBid } from './bidMath'
 
 const LOG_CHUNK = 5_000n
@@ -18,6 +19,7 @@ const RECENT_TAIL = 2_000n
  *  spoofed contract can return our factory from `factory()` and harvest an
  *  approve. `factoryOf` reads `registeredHooks`, which only `createLaunch` writes. */
 export function useIsV2Hook(hook: Address | undefined): boolean | undefined {
+  const v31 = useIsV31Hook(hook)
   const { data, isError } = useReadContract({
     address: V2_BIDBOOK,
     abi: V2_BIDBOOK_ABI,
@@ -26,9 +28,36 @@ export function useIsV2Hook(hook: Address | undefined): boolean | undefined {
     chainId: TARGET_CHAIN_ID,
     query: { enabled: V2_ENABLED && hook !== undefined && V2_BIDBOOK !== undefined, staleTime: Infinity },
   })
-  if (!V2_ENABLED || isError) return false
+  if (v31) return true
+  if (!V2_ENABLED || isError) return v31 === undefined ? undefined : false
   if (data === undefined) return undefined
-  return data !== zeroAddress
+  return data !== zeroAddress || (v31 === undefined ? undefined : false)
+}
+
+/** `true` when the v3.1 factory registered `hook`, read off the factory for
+ *  the reason above. The live BidBook predates it and cannot name it. */
+export function useIsV31Hook(hook: Address | undefined): boolean | undefined {
+  const { data, isError } = useReadContract({
+    address: V31_FACTORY,
+    abi: V31_FACTORY_ABI,
+    functionName: 'registeredHooks',
+    args: hook ? [hook] : undefined,
+    chainId: TARGET_CHAIN_ID,
+    query: { enabled: V31_ENABLED && hook !== undefined, staleTime: Infinity },
+  })
+  if (!V31_ENABLED || isError) return false
+  return data
+}
+
+/** The lens that reads `hook`: v3.1's for its hooks, else the stack's. */
+function useLensOf(hook: Address | undefined): { lens: Address | undefined; v31: boolean | undefined } {
+  const v31 = useIsV31Hook(hook)
+  return { lens: v31 ? V31_LENS : v31 === false ? V2_LENS : undefined, v31 }
+}
+
+/** The address `quoteGenesis` and `accountState` go to for `hook`. Both encode alike on every lens. */
+export function useGenesisLens(hook: Address | undefined): Address | undefined {
+  return useLensOf(hook).lens
 }
 
 /** The factory that registered `hook`, from BidBook for the same reason as above. */
@@ -71,24 +100,72 @@ export function useShelfQuote(hook: Address, amount: bigint) {
 }
 
 export function useGenesisState(hook: Address | undefined) {
-  return useReadContract({
+  const { v31 } = useLensOf(hook)
+  const base = useReadContract({
     address: V2_LENS,
     abi: V2_LENS_ABI,
     functionName: 'genesisState',
     args: hook ? [hook] : undefined,
     chainId: TARGET_CHAIN_ID,
-    query: { enabled: V2_ENABLED && hook !== undefined, refetchInterval: 8_000 },
+    query: { enabled: V2_ENABLED && hook !== undefined && v31 === false, refetchInterval: 8_000 },
   })
+  const next = useReadContract({
+    address: V31_LENS,
+    abi: V31_LENS_ABI,
+    functionName: 'genesisState',
+    args: hook ? [hook] : undefined,
+    chainId: TARGET_CHAIN_ID,
+    query: { enabled: hook !== undefined && v31 === true, refetchInterval: 8_000 },
+  })
+  if (!v31) return { data: base.data, refetch: base.refetch }
+  return { data: next.data && { ...next.data, acceptsNative: false }, refetch: next.refetch }
 }
 
 export function useAccountState(hook: Address | undefined, account: Address | undefined) {
+  const { lens } = useLensOf(hook)
   return useReadContract({
-    address: V2_LENS,
+    address: lens,
     abi: V2_LENS_ABI,
     functionName: 'accountState',
     args: hook && account ? [hook, account] : undefined,
     chainId: TARGET_CHAIN_ID,
-    query: { enabled: V2_ENABLED && hook !== undefined && account !== undefined, refetchInterval: 15_000 },
+    query: { enabled: V2_ENABLED && lens !== undefined && hook !== undefined && account !== undefined, refetchInterval: 15_000 },
+  })
+}
+
+/** v3.1 only: the L2 curve of `hook`, with any idle burn that is due counted as burned. */
+export function useL2State(hook: Address | undefined) {
+  return useReadContract({
+    address: V31_LENS,
+    abi: V31_LENS_ABI,
+    functionName: 'l2State',
+    args: hook ? [hook] : undefined,
+    chainId: TARGET_CHAIN_ID,
+    query: { enabled: V31_ENABLED && hook !== undefined, refetchInterval: 8_000 },
+  })
+}
+
+/** v3.1 only: what `account` may still pay on `hook`'s L2, and its vesting lock. */
+export function useL2Account(hook: Address | undefined, account: Address | undefined) {
+  return useReadContract({
+    address: V31_LENS,
+    abi: V31_LENS_ABI,
+    functionName: 'l2Account',
+    args: hook && account ? [hook, account] : undefined,
+    chainId: TARGET_CHAIN_ID,
+    query: { enabled: V31_ENABLED && hook !== undefined && account !== undefined, refetchInterval: 15_000 },
+  })
+}
+
+/** v3.1 only: what `mintL2(pay, 0)` would lock and charge now. */
+export function useL2Quote(hook: Address | undefined, pay: bigint) {
+  return useReadContract({
+    address: V31_LENS,
+    abi: V31_LENS_ABI,
+    functionName: 'quoteL2',
+    args: hook ? [hook, pay] : undefined,
+    chainId: TARGET_CHAIN_ID,
+    query: { enabled: V31_ENABLED && hook !== undefined && pay > 0n, refetchInterval: 8_000 },
   })
 }
 

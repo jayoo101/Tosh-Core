@@ -11,8 +11,8 @@ import { Row } from '@/components/x/Panel'
 import { fill, useT } from '@/i18n'
 import { ACTIVE_CHAIN_LABEL, TARGET_CHAIN_ID } from '@/lib/chain'
 import { V2_HOOK_ABI, V2_LENS_ABI } from '@/lib/v2/abis'
-import { V2_LENS, type V2Quote } from '@/lib/v2/config'
-import { useAccountState, useGenesisState } from '@/lib/v2/useV2'
+import { type V2Quote } from '@/lib/v2/config'
+import { useAccountState, useGenesisLens, useGenesisState } from '@/lib/v2/useV2'
 import { fmtSig, isContractCode, parseAmount } from './fmt'
 import { AgentModeSheet } from './AgentModeSheet'
 import { WalletAction } from './WalletAction'
@@ -33,6 +33,7 @@ export function GenesisBuyPanel({ hook, quote, open, ended = false, symbol }: {
   const [raw, setRaw] = useState('')
 
   const state = useGenesisState(hook)
+  const lens = useGenesisLens(hook)
   const acct = useAccountState(hook, address)
   const shares = agentShares(quote, state.data?.minBuy, state.data?.perAgentCap)
   const shareCount = shares && /^\d+$/.test(raw.trim()) ? BigInt(raw.trim()) : 0n
@@ -49,12 +50,12 @@ export function GenesisBuyPanel({ hook, quote, open, ended = false, symbol }: {
   // With no wallet connected (an Agent signs elsewhere) the quote is for the full amount.
   const budget = acct.data !== undefined && pay > remaining ? remaining : pay
   const { data: q } = useReadContract({
-    address: V2_LENS,
+    address: lens,
     abi: V2_LENS_ABI,
     functionName: 'quoteGenesis',
     args: [hook, budget],
     chainId: TARGET_CHAIN_ID,
-    query: { enabled: budget > 0n },
+    query: { enabled: budget > 0n && lens !== undefined },
   })
   const tokens = q?.[0] ?? 0n
   const cost = q?.[1] ?? 0n

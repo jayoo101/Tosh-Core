@@ -7,7 +7,8 @@ import { useReadContracts } from 'wagmi'
 import type { DirectoryProject } from '@/components/directory/useDirectoryProjects'
 import { TARGET_CHAIN_ID } from '@/lib/chain'
 import { V2_HOOK_ABI, V2_LENS_ABI } from '@/lib/v2/abis'
-import { V2_ENABLED, V2_LENS, isV2Factory } from '@/lib/v2/config'
+import { V31_LENS_ABI } from '@/lib/v2/abisV31'
+import { V2_ENABLED, V2_LENS, V31_ENABLED, V31_LENS, isV2Factory, isV31Factory } from '@/lib/v2/config'
 
 export interface GenesisSummary {
   hardCap: bigint
@@ -31,26 +32,39 @@ const key = (a: string) => a.toLowerCase()
  * directory already read.
  */
 export function useV2Summaries(projects: readonly DirectoryProject[]): Map<string, GenesisSummary> {
-  const hooks = useMemo(() => projects.filter(p => isV2Factory(p.factory)).map(p => p.hook), [projects])
+  const hooks = useMemo(
+    () => projects.filter(p => isV2Factory(p.factory) && !isV31Factory(p.factory)).map(p => p.hook),
+    [projects],
+  )
+  const hooks31 = useMemo(() => projects.filter(p => isV31Factory(p.factory)).map(p => p.hook), [projects])
   const { data } = useReadContracts({
     contracts: hooks.map(hook => ({
       address: V2_LENS!, abi: V2_LENS_ABI, functionName: 'genesisState' as const, args: [hook] as const, chainId: TARGET_CHAIN_ID,
     })),
     query: { enabled: V2_ENABLED && hooks.length > 0, refetchInterval: 20_000 },
   })
+  const { data: data31 } = useReadContracts({
+    contracts: hooks31.map(hook => ({
+      address: V31_LENS!, abi: V31_LENS_ABI, functionName: 'genesisState' as const, args: [hook] as const, chainId: TARGET_CHAIN_ID,
+    })),
+    query: { enabled: V31_ENABLED && hooks31.length > 0, refetchInterval: 20_000 },
+  })
   return useMemo(() => {
     const out = new Map<string, GenesisSummary>()
     data?.forEach((r, i) => {
       if (r.status === 'success') out.set(key(hooks[i]), r.result as GenesisSummary)
     })
+    data31?.forEach((r, i) => {
+      if (r.status === 'success') out.set(key(hooks31[i]), r.result as GenesisSummary)
+    })
     return out
-  }, [data, hooks])
+  }, [data, data31, hooks, hooks31])
 }
 
-/** The live shelf of every launched v2 project in the list, keyed by hook. */
+/** The live shelf of every launched v2 project in the list, keyed by hook. v3.1 has no shelves. */
 export function useShelfSummaries(projects: readonly DirectoryProject[]): Map<string, ShelfSummary> {
   const hooks = useMemo(
-    () => projects.filter(p => p.launched && isV2Factory(p.factory)).map(p => p.hook as Address),
+    () => projects.filter(p => p.launched && isV2Factory(p.factory) && !isV31Factory(p.factory)).map(p => p.hook as Address),
     [projects],
   )
   const { data } = useReadContracts({
