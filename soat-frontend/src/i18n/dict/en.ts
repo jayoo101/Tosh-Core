@@ -489,6 +489,8 @@ export const EN = {
     lfSend:            'Send createLaunch',
     lfAction:          'launch creation',
     lfExport:          'Export Safe batch (JSON)',
+    lfStackV31:        'v3.1 USDT',
+    lfV31Note:         'v3.1: after genesis the L2 curve replaces the shelf ladder; L2 mints vest over 8 hours and platform revenue buys back and burns TOSH.',
     lfAfter:           'After it confirms, sign and publish the project info below.',
     lfAgentFixed:      'Set by the factory for every launch on this market. The platform Safe can change it.',
     piTitle:           'Project info',

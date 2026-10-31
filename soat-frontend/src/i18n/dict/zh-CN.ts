@@ -366,6 +366,8 @@ export const ZH_CN: PartialDictionary = {
     lfSend:            '发送 createLaunch',
     lfAction:          '创建项目',
     lfExport:          '导出 Safe 批量交易（JSON）',
+    lfStackV31:        'v3.1 USDT',
+    lfV31Note:         'v3.1：创世结束后由 L2 曲线取代货架阶梯；L2 铸造 8 小时线性释放，平台收入全部回购销毁 TOSH。',
     lfAfter:           '交易确认后，在下方「项目资料」签名发布。',
     lfAgentFixed:      '该市场所有项目统一由工厂设定，平台 Safe 可以调整。',
     piTitle:           '项目资料',
