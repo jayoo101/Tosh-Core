@@ -10,7 +10,7 @@ firing without somebody deciding about it. Neither gate is advisory.
 | Baseline | `slither-baseline.json` | `aderyn-baseline.json` |
 | Gate | `scripts/checkSlitherFindings.mjs` | `scripts/checkAderynFindings.mjs` |
 | Scope | `src/` (`--filter-paths lib/\|test/\|script/`) | `src/` (inferred from `foundry.toml`) |
-| Current | 255 findings, 2H/93M/84L/76I | 391 findings, 83H/308L |
+| Current | 285 findings, 2H/103M/99L/81I | 455 findings, 92H/363L |
 | Runtime | ~15 s, plus a slower `pip install` | ~6 s, no compile of its own |
 
 The current counts include `src/v3/`: the token, hook, factory and lens now
@@ -23,6 +23,11 @@ They also include `src/v31/`, the v3.1 contracts, which are not deployed yet:
 the v3 hook, factory and token copied and given a continuous L2 curve with
 Dutch decay, one L2 mint per Agent ID and wallet, and a 12-hour vesting
 contract. Each analyser's v3.1 findings have their own section.
+
+And they include `src/ouroboros/`, the Ouroboros fair mint, also not deployed:
+a token, a mint and an L1.5 bid book on a Pancake V2 TOKEN/USDT pair. It
+shares no code with the launchpad, so its findings are new rather than
+copies, and each analyser gives them a section of their own.
 
 ## Why both
 
@@ -264,9 +269,49 @@ more, all of a shape v3's `ToshLadderTreasury` already carries:
 - One more `missing-inheritance`: the buyback matches the hook's private
   treasury interface without importing it.
 
+### Slither: Ouroboros (`src/ouroboros/`, not deployed)
+
+30 findings: 285 against 255 before. Every entry point that moves funds —
+`mintL1`, `launch`, `seedPool`, `claimL1`, `mintL2`, `claim`, and the bid
+book's `placeBid`, `cancel` and `fill` — is `nonReentrant`, and every
+external callee is fixed at construction: USDT, WBNB, the Pancake V2 router and
+pair, the Chainlink BNB/USD feed and the ERC-8004 registry.
+
+- **`timestamp`** ×10 — `OuroborosMint.phase`, `launch`, `seedPool`,
+  `claim`, `vestOf`, `quoteBnb`, `_collect`, `OuroborosBidBook.isOpen`, and
+  `OuroborosToken.tradingOpen` and `_swapTaxes`. Phase boundaries hours or
+  days apart, the 180-second vesting delay, the three-day open-seeding delay,
+  the one-hour feed staleness limit, and the router deadline. Validator skew
+  of seconds moves none of them meaningfully.
+- **`divide-before-multiply`** ×5 — `ladderPrice`. The L2 price is a step
+  ladder: `(n − start) / step` counts whole steps before the step size
+  multiplies it. Flooring first is the schedule.
+- **`reentrancy-benign`** ×5 — `mintL1`, `mintL2`, and the private
+  `_seedPool` and `_autoLp` they reach. All under `nonReentrant`; the calls are
+  USDT transfers, the router swap and the pair's `swap`, `mint` and `sync`.
+- **`unused-return`** ×3 — the pair's reserve timestamp in `_reserves` and
+  `_swapTaxes`, and Chainlink's round fields in `quoteBnb`, which checks the
+  answer and `updatedAt` it does use.
+- **`low-level-calls`** ×2 — `_collect` refunds surplus BNB with a value
+  call and reverts if it fails; `isSeeder` asks the owner Safe `isOwner` with a
+  gas cap and decodes the reply strictly, so an owner that is not a Safe can
+  neither block open seeding nor make every caller a seeder.
+- **`reentrancy-no-eth`** — `OuroborosToken._swapTaxes`. It clears `_inSwap`
+  after the router call, and `_inSwap` is itself the guard: the router's
+  transfers back into the token see it set and skip the swap. The router is
+  fixed at construction.
+- **`incorrect-equality`** — `_swapTaxes` (`_lastSwapBlock == block.number`),
+  one tax swap per block.
+- **`assembly`** — `OuroborosToken._probe`, a gas-capped `staticcall` that
+  reads one word, used to recognise pools of other AMMs. It rejects any reply
+  that is not exactly 32 bytes or has the upper 96 bits set.
+- **`naming-convention`** — `IPancakeV2Router.WETH`, the router's own name.
+- **`unindexed-event-address`** — `OuroborosToken.Wired`, emitted once by
+  the deployer's one-shot `wire`.
+
 ## Aderyn disposition record
 
-23 detectors, 391 instances, all triaged, nothing unresolved.
+24 detectors, 455 instances, all triaged, nothing unresolved.
 
 `src/v31/` adds six source units (27 in all) and 90 instances. 84 are at the
 v3.1 copy of a v3 site below, with the same disposition, or are the
@@ -289,6 +334,22 @@ file-level pragma and `PUSH0` notes; five literal notes (`1e18` scaling and
 the slot constant); `unchecked-return` on `vault.lock` and `vault.settle`;
 `missing-inheritance`; and `unused-state-variable` on `_PIGGYBACK_SLOT`, which
 like the treasury's is read only inside `assembly`.
+
+Four more are v3.1 sites that changed in #101 without a re-run, recorded
+here: a sixth view read in the buyback's constructor (the pool manager's
+`vault()`, checked against the configured Vault), the buyback's
+`requestRescue` stamp (now plus the 72-hour `RESCUE_DELAY`, as a `uint64`),
+and two more casts in `ToshFactoryV31.haltLadderMinting` (the halt clock,
+below).
+
+`src/ouroboros/` adds four source units (32 in all) and 60 instances: the
+file-level pragma and `PUSH0` notes ×4 each; `large-numeric-literal` ×17 and
+`literal-instead-of-constant` ×15 (the supply split, the L2 ladder's steps and
+the bps and gas constants); `local-variable-shadowing` ×10 (the mint
+constructor's `Config` fields, named after the state they set);
+`reentrancy-state-change` ×4; `unsafe-casting` ×1; `unused-state-variable`
+×2; `centralization-risk` ×2; and the one `block-timestamp-deadline`. The
+non-style ones are described under their detectors below.
 
 Re-baselined on 2026-10-28 against v2. `src/` went from 10 source units to
 14: `ToshBidBook`, `ToshHookLens`, `AgentIdLib`, `WalletLib` and
@@ -358,8 +419,12 @@ encoding. The code already handles the one real version of this concern: the
 silent truncation cannot make two different caps or durations produce the same
 initcode hash.
 
-**`reentrancy-state-change`** — 71, in three groups, none reachable. The
-groups below count the 49 outside `src/v31/`; of the 22 there, 6 are
+**`reentrancy-state-change`** — 76, in three groups, none reachable. The
+groups below count the 49 outside `src/v31/` and `src/ouroboros/`. The 4 in
+Ouroboros are the mint constructor, which reads the pair's `token0()` before
+deploying its bid book, and `mintL2`, whose calls to the token's
+`swapTaxes`, `burnFromPair` and the pair's `sync` sit under `nonReentrant` on
+callees fixed at construction. Of the 23 in `src/v31/`, 7 are
 `ToshBuybackV31`'s (above) and 16 are the v3.1 copies
 of the hook's `launch`, `buyGenesis` and constructor sites and the factory's
 `createLaunch`, constructor and `releaseAbandonedName`, one more in `launch`
@@ -390,7 +455,7 @@ permissionless and takes an address argument: its first statement is
 `if (!registeredHooks[hook]) revert HookNotRegistered()`, so the callee is
 always a clone this factory deployed, never caller-supplied code.
 
-**`unsafe-casting`** — 6. One is `ToshLadderTreasury._buybackSqrtFloor`. Cannot
+**`unsafe-casting`** — 10. One is `ToshLadderTreasury._buybackSqrtFloor`. Cannot
 truncate. The cast is `uint160(floor)` where
 `floor = twapSqrt × (BPS_DENOMINATOR − MAX_BUYBACK_SQRT_DEVIATION_BPS) /
 BPS_DENOMINATOR`, `twapSqrt` is already `uint160`, and both constants are
@@ -406,10 +471,16 @@ is a `uint32` timestamp, good to 2106. `haltedAt` is a `uint128` count of
 seconds, and `periods` a `uint32` count of 10-minute periods since the last
 mint, which would take 81 000 years to overflow.
 
-The last is `ToshFactoryV31.haltLadderMinting`, which stores the halt clock as
+Three are `ToshFactoryV31.haltLadderMinting`, which stores the halt clock as
 `uint64` timestamps and a `uint128` running total: `until` is now plus at most
 `MAX_HALT_DURATION`, and the total can grow by at most the seconds that have
-passed since deployment.
+passed since deployment. `ToshBuybackV31.requestRescue` stores now plus 72
+hours as a `uint64`.
+
+The last is `OuroborosMint._lock`, which packs a vesting entry as a `uint128`
+amount and a `uint64` unlock time. The amount was minted in the same call, so
+the token's `CAP` of 2.1e28 bounds it against 3.4e38, and the unlock time is
+now plus 180 seconds.
 
 ### Low
 
@@ -428,8 +499,11 @@ moved behind the Circuit holder's admin window, and the error is kept so the
 ABI does not lose a selector indexers may already match on. Its companion
 `NativeTransferFailed` is in use again, by the BNB refund in `buyGenesis`.
 
-**`unused-state-variable`** — 2, `ToshLadderTreasury._PIGGYBACK_SLOT` and
-`ToshBuybackV31._PIGGYBACK_SLOT`. False
+**`unused-state-variable`** — 4, `ToshLadderTreasury._PIGGYBACK_SLOT`,
+`ToshBuybackV31._PIGGYBACK_SLOT`, and Ouroboros's two probe gas caps:
+`OuroborosToken.PAIR_PROBE_GAS`, read inside `_probe`'s `assembly`, and
+`OuroborosMint.SAFE_PROBE_GAS`, read as the `{gas: ...}` option of
+`isSeeder`'s call. False
 positive, and the most important one to understand before trusting this
 detector: the constant *is* used, at the `tload` and `tstore` that implement
 the treasury's hand-rolled reentrancy mutex. Aderyn's AST walk does not
@@ -449,9 +523,13 @@ storage reads with no call.
 returns the resulting tick, and `_grantRole()` returns whether the role was
 newly granted inside the token's run-once `initialize`.
 
-**`centralization-risk`** — 52. Accurate and by design. The v3.1 factory and
+**`centralization-risk`** — 54. Accurate and by design. The v3.1 factory and
 token add 16 copies of the v3 sites described here; v3.1 is not deployed, and
-will be owned the same way. Mainnet ownership is a
+will be owned the same way. `OuroborosMint` adds 2, the contract and
+`setPaused`, which is its owner's only power: it stops `mintL1`, `mintL2`
+and open seeding, while claims and the bid book stay open, and
+`renounceOwnership` reverts. Its owner is set to the same
+Safe in the constructor. Mainnet ownership is a
 2-of-3 Gnosis Safe (SafeL2 1.4.1, `0x02DE4629129D104C63329D13A6Ca67E43db7B310`).
 Each v3 factory is owned by its `ToshLaunchGateway` — BNB
 `0x790091e8965eCc1adfA40AA9b95515C6289dCE9d`, USDT
@@ -506,6 +584,12 @@ life: the minter cannot be changed, added to, or taken away by anyone,
 including the platform. Supply is bounded independently by the `MAX_SUPPLY`
 check inside `mint`, and there is deliberately no kill-switch.
 
+**`block-timestamp-deadline`** — 1, `OuroborosToken._swapTaxes`, which
+passes `block.timestamp` as the router deadline. The swap is the token's
+own, made inside a user's transfer, so there is no signed transaction a
+validator could hold back and replay later; the deadline has nothing to
+protect. The size is capped at 0.1 % of the pool's tokens per block.
+
 **`unused-public-function`** — 26: on the hook `creator`, `projectTreasury`,
 `currentTierIndex`, `currentTierSold`, `phase2Minted`, `currentGenesisPrice`,
 `maxMintable` and `lastSwapBlock`, and on the lens
@@ -523,19 +607,19 @@ contract that cannot hold ERC-721s is the developer's choice to make.
 Inheriting would pull another contract's interface file in for no behavioural
 change.
 
-**`push-zero-opcode`** (28) and **`unspecific-solidity-pragma`** (21) — both
+**`push-zero-opcode`** (32) and **`unspecific-solidity-pragma`** (25) — both
 follow from `^0.8.24`/`^0.8.26` pragmas plus `evm_version = "cancun"`. PUSH0 is
 intended; Shanghai-or-later is a deployment requirement this project already
 depends on more sharply elsewhere (the transient-storage mutex needs Cancun,
 verified by execution against chain 56 — see `foundry.toml`).
 
-**`local-variable-shadowing`** (45; the v3 and v3.1 factories repeat the v2 set) — 14 are the fields of `ToshFactory.Config`,
+**`local-variable-shadowing`** (55; the v3 and v3.1 factories repeat the v2 set, and `OuroborosMint.Config` adds 10 of the same shape) — 14 are the fields of `ToshFactory.Config`,
 the constructor's argument struct, which are named after the state variables
 they initialise; the fifteenth is `ToshLadderTreasury`'s constructor parameter
 `_owner`, which shadows `Ownable`'s private slot and is handed straight to
 `Ownable`'s constructor. Nothing is shadowed at run time.
 
-**`literal-instead-of-constant`** (34), **`large-numeric-literal`** (20),
+**`literal-instead-of-constant`** (49), **`large-numeric-literal`** (37),
 **`modifier-used-only-once`** (11), **`costly-loop`** (8),
 **`require-revert-in-loop`** (10), **`uninitialized-local-variable`** (6) — style
 findings with no behavioural claim. The uninitialised locals are loop counters

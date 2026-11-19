@@ -9,7 +9,7 @@ import {Math} from "../../lib/openzeppelin-contracts/contracts/utils/math/Math.s
 import {AgentIdLib} from "../libraries/AgentIdLib.sol";
 import {OuroborosToken} from "./OuroborosToken.sol";
 import {OuroborosBidBook} from "./OuroborosBidBook.sol";
-import {IPancakeV2Pair, IPancakeV2Router, IChainlinkFeed, ISafeOwners} from "./interfaces/IOuroborosExternal.sol";
+import {IPancakeV2Pair, IPancakeV2Router, IChainlinkFeed, IOuroborosSafe} from "./interfaces/IOuroborosExternal.sol";
 
 /// @title  OuroborosMint
 /// @notice L1 seeding, launch, L1 claims, pool seeding and L2 expansion.
@@ -324,7 +324,7 @@ contract OuroborosMint is Ownable2Step, ReentrancyGuard {
         // Gas-capped and strictly decoded: an owner that is not a Safe can
         // neither block open seeding nor make every caller a seeder.
         (bool ok, bytes memory ret) =
-            o.staticcall{gas: SAFE_PROBE_GAS}(abi.encodeWithSelector(ISafeOwners.isOwner.selector, account));
+            o.staticcall{gas: SAFE_PROBE_GAS}(abi.encodeWithSelector(IOuroborosSafe.isOwner.selector, account));
         return ok && ret.length == 32 && abi.decode(ret, (uint256)) == 1;
     }
 
@@ -457,6 +457,7 @@ contract OuroborosMint is Ownable2Step, ReentrancyGuard {
     }
 
     function _lock(address user, uint256 amount) private {
+        // `amount` was just minted, so the token CAP (2.1e28) bounds it far below 2^128.
         _vests[user].push(Vest({amount: uint128(amount), unlockAt: uint64(block.timestamp + VEST_DELAY)}));
         totalVesting += amount;
     }

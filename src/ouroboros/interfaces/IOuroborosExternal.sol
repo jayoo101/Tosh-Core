@@ -42,6 +42,6 @@ interface IChainlinkFeed {
         returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound);
 }
 
-interface ISafeOwners {
+interface IOuroborosSafe {
     function isOwner(address owner) external view returns (bool);
 }
