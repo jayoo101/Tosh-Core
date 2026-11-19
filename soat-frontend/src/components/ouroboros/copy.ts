@@ -7,6 +7,8 @@ const ZH = {
   title: '衔尾蛇 Ouroboros',
   tagline: '持 Agent ID 公平铸造 · 总量 210 亿 · LP 永久锁定',
   notDeployed: '合约尚未部署，页面将在地址公布后开放。',
+  bannerKicker: '主推活动',
+  bannerCta: '进入衔尾蛇',
   paused: '铸造已暂停',
   phase: {
     Pending: '未开始',
@@ -125,6 +127,8 @@ const EN: Copy = {
   title: 'Ouroboros',
   tagline: 'Agent ID fair mint · 21B supply · LP locked forever',
   notDeployed: 'Contracts are not deployed yet. This page opens once the addresses are published.',
+  bannerKicker: 'Featured',
+  bannerCta: 'Enter Ouroboros',
   paused: 'Minting is paused',
   phase: {
     Pending: 'Not started',

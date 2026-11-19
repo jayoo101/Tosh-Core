@@ -28,7 +28,7 @@ const WalletPip = dynamic(
  *
  * From `lg` up the routes live in `SideRail`, so the links here are the
  * phone and tablet navigation only: a scrolling row under the bar rather than
- * a squeeze beside the wallet, because seven labels do not fit at 390px.
+ * a squeeze beside the wallet, because the labels do not fit at 390px.
  */
 export function ToshNavbar() {
   const pathname = usePathname()
