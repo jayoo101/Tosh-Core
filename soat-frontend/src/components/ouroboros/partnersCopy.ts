@@ -15,7 +15,7 @@ const ZH = {
   code: '邀请码',
   partner: '收款地址',
   label: '备注',
-  rate: '返佣比例',
+  bonus: '打满返佣',
   accounts: '绑定用户',
   volume: '铸造额',
   accrued: '应得返佣',
@@ -29,7 +29,7 @@ const ZH = {
   copied: '已复制',
   newLink: '新建链接',
   create: '创建',
-  setRate: '修改比例',
+  setBonus: '修改返佣',
   save: '保存',
   recordPayout: '登记付款',
   recordNote: '自动付款会自动记账，一般无需登记；只有从金库直接付款等例外情况才需要填交易哈希，金额从链上读取。',
@@ -45,7 +45,7 @@ const ZH = {
   approve: '批准本次付款',
   noPayer: '未配置付款钱包（NEXT_PUBLIC_OURO_REF_PAYER）',  txHash: '交易哈希',
   record: '登记',
-  rateNote: '比例以 % 填写，最高 20%；修改后只影响之后的铸造。',
+  bonusNote: '每个 Agent ID 铸满 30 份时，一次性计给该邀请码固定的 USDT，最高 10,000 USDT。修改后只影响之后铸满的 Agent ID。',
   recorded: (n: number) => `已登记 ${n} 笔付款`,
 }
 
@@ -62,7 +62,7 @@ const EN: typeof ZH = {
   code: 'Code',
   partner: 'Payout address',
   label: 'Label',
-  rate: 'Rate',
+  bonus: 'Full-fill rebate',
   accounts: 'Bound users',
   volume: 'Mint volume',
   accrued: 'Earned',
@@ -76,7 +76,7 @@ const EN: typeof ZH = {
   copied: 'Copied',
   newLink: 'New link',
   create: 'Create',
-  setRate: 'Change rate',
+  setBonus: 'Change rebate',
   save: 'Save',
   recordPayout: 'Record a payout',
   recordNote: 'Automatic payouts are recorded on their own. Enter a hash only for exceptions, such as a payment straight from the treasury; the amount is read from the chain.',
@@ -92,7 +92,7 @@ const EN: typeof ZH = {
   approve: 'Approve this payout',
   noPayer: 'Payout wallet not configured (NEXT_PUBLIC_OURO_REF_PAYER)',  txHash: 'Transaction hash',
   record: 'Record',
-  rateNote: 'Rate in %, at most 20%; a change applies to later mints only.',
+  bonusNote: 'When an Agent ID fills its 30 shares, this fixed USDT amount is credited to the link once. At most 10,000 USDT. A change applies only to Agent IDs that fill after it.',
   recorded: (n: number) => `${n} payout${n === 1 ? '' : 's'} recorded`,
 }
 

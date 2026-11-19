@@ -16,7 +16,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { applyRateLimit, readJsonBody } from '@/app/lib/apiGuard'
 import { autopayState } from '@/app/lib/ouroAutopay'
 import {
-  approvePayout, createLink, isSafeSigner, parseRefAction, recordPayout, RefError, refReport, setRate, verifyRefSigner,
+  approvePayout, createLink, isSafeSigner, parseRefAction, recordPayout, RefError, refReport, setBonus, verifyRefSigner,
 } from '@/app/lib/ouroRef'
 import { SupabaseAdminUnavailable } from '@/app/lib/supabaseAdmin'
 import { reportError } from '@/lib/observability'
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
 
     let recorded: number | undefined
     if (request.action === 'createLink') await createLink(request, signer)
-    else if (request.action === 'setRate') await setRate(request, signer)
+    else if (request.action === 'setBonus') await setBonus(request, signer)
     else if (request.action === 'recordPayout') recorded = await recordPayout(request, signer)
     else if (request.action === 'approvePayout') await approvePayout(request, signer, body.issuedAt as number)
     if (request.action !== 'list') console.log(`[ouro-ref] ${request.action} by ${signer}`)

@@ -13,7 +13,7 @@ import {
 import { assertServerChain, serverPublicClient } from '@/app/lib/serverRpc'
 import { getSupabaseAdmin } from '@/app/lib/supabaseAdmin'
 import { OURO_REF_PAYER, OURO_TREASURY, OURO_USDT } from '@/lib/ouroboros/config'
-import { isRefCode, MAX_REF_RATE_BPS, REF_SIG_TTL_MS, refMessage, type RefAction } from '@/lib/ouroboros/ref'
+import { isRefCode, MAX_REF_BONUS_WEI, REF_SIG_TTL_MS, refMessage, type RefAction } from '@/lib/ouroboros/ref'
 
 const SAFE_ABI = parseAbi(['function isOwner(address owner) view returns (bool)'])
 const TRANSFER_ABI = parseAbi(['event Transfer(address indexed from, address indexed to, uint256 value)'])
@@ -31,11 +31,11 @@ const REF_SIG_MAX_SKEW_MS = 60_000
 /** Checks the shape of a request body and returns the action it carries. */
 export function parseRefAction(v: unknown): RefAction {
   const r = (v ?? {}) as Record<string, unknown>
-  const rate = (x: unknown) => {
-    if (!Number.isInteger(x) || (x as number) < 0 || (x as number) > MAX_REF_RATE_BPS) {
-      throw new RefError(422, `rateBps must be an integer from 0 to ${MAX_REF_RATE_BPS}`)
+  const bonus = (x: unknown) => {
+    if (typeof x !== 'string' || !/^[1-9]\d{0,30}$/.test(x) || BigInt(x) > MAX_REF_BONUS_WEI) {
+      throw new RefError(422, 'bonus must be a whole number of USDT wei, above 0 and at most 10,000 USDT')
     }
-    return x as number
+    return x
   }
   const code = (x: unknown) => {
     if (!isRefCode(x)) throw new RefError(422, 'code must be 3 to 16 lowercase letters or digits')
@@ -48,10 +48,10 @@ export function parseRefAction(v: unknown): RefAction {
     case 'createLink': {
       if (typeof r.partner !== 'string' || !isAddress(r.partner)) throw new RefError(422, 'partner must be an address')
       if (typeof r.label !== 'string' || r.label.length > 64) throw new RefError(422, 'label must be at most 64 characters')
-      return { action: 'createLink', code: code(r.code), partner: lower(r.partner), label: r.label, rateBps: rate(r.rateBps) }
+      return { action: 'createLink', code: code(r.code), partner: lower(r.partner), label: r.label, bonus: bonus(r.bonus) }
     }
-    case 'setRate':
-      return { action: 'setRate', code: code(r.code), rateBps: rate(r.rateBps) }
+    case 'setBonus':
+      return { action: 'setBonus', code: code(r.code), bonus: bonus(r.bonus) }
     case 'recordPayout':
       if (typeof r.txHash !== 'string' || !isHex(r.txHash) || r.txHash.length !== 66) {
         throw new RefError(422, 'txHash must be a transaction hash')
@@ -109,7 +109,7 @@ function check(error: { message: string; code?: string } | null, what: string) {
 }
 
 export interface RefLink {
-  code: string; partner: string; label: string; rateBps: number; accounts: number; volume: string; accrued: string
+  code: string; partner: string; label: string; bonus: string | null; accounts: number; volume: string; accrued: string
 }
 export interface RefPayout { txHash: string; logIndex: number; partner: string; amount: string; blockNumber: number }
 export interface RefPartner { partner: string; accrued: string; paid: string; owed: string }
@@ -137,11 +137,11 @@ async function allRows<T>(what: string, page: (from: number, to: number) => Rang
 /** Links, payouts and per-partner balances; every partner when `partner` is undefined. */
 export async function refReport(partner?: string): Promise<RefReport> {
   const who = partner ? lower(partner) : undefined
-  type LinkRow = { code: string; partner: string; label: string; rate_bps: number | null; accounts: number; volume: string; accrued: string }
+  type LinkRow = { code: string; partner: string; label: string; bonus: string | null; accounts: number; volume: string; accrued: string }
   type PayRow = { tx_hash: string; log_index: number; partner: string; amount: string; block_number: number }
   const links = (from: number, to: number) => {
     const q = db().from('ouro_ref_link_stats')
-      .select('code, partner, label, rate_bps, accounts, volume::text, accrued::text')
+      .select('code, partner, label, bonus::text, accounts, volume::text, accrued::text')
       .order('created_at', { ascending: true }).order('code', { ascending: true })
     return (who ? q.eq('partner', who) : q).range(from, to)
   }
@@ -175,7 +175,7 @@ export async function refReport(partner?: string): Promise<RefReport> {
 
   return {
     links: linkRows.map(r => ({
-      code: r.code, partner: r.partner, label: r.label, rateBps: r.rate_bps ?? 0,
+      code: r.code, partner: r.partner, label: r.label, bonus: r.bonus,
       accounts: r.accounts, volume: r.volume, accrued: r.accrued,
     })),
     payouts: payRows.map(r => ({
@@ -193,16 +193,17 @@ export async function createLink(r: Extract<RefAction, { action: 'createLink' }>
   const { error } = await db().from('ouro_ref_links')
     .insert({ code: r.code, partner: r.partner, label: r.label, created_by: lower(by) })
   check(error, 'link')
-  await setRate({ action: 'setRate', code: r.code, rateBps: r.rateBps }, by)
+  await setBonus({ action: 'setBonus', code: r.code, bonus: r.bonus }, by)
 }
 
-export async function setRate(r: Extract<RefAction, { action: 'setRate' }>, by: Address) {
+/** Sets the amount paid for each Agent ID that fills, from the current block on. */
+export async function setBonus(r: Extract<RefAction, { action: 'setBonus' }>, by: Address) {
   const { data, error } = await db().from('ouro_ref_links').select('code').eq('code', r.code).maybeSingle()
   check(error, 'link')
   if (!data) throw new RefError(404, `no link ${r.code}`)
-  const { error: insertError } = await db().from('ouro_ref_rates')
-    .insert({ code: r.code, rate_bps: r.rateBps, effective_block: await headBlock(), set_by: lower(by) })
-  check(insertError, 'rate')
+  const { error: insertError } = await db().from('ouro_ref_bonuses')
+    .insert({ code: r.code, amount: r.bonus, effective_block: await headBlock(), set_by: lower(by) })
+  check(insertError, 'bonus')
 }
 
 export interface UsdtTransfer { txHash: string; logIndex: number; to: string; value: bigint; blockNumber: bigint }
