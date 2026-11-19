@@ -23,9 +23,8 @@ const Toaster = dynamic<ToasterProps>(
 // hard-coded HTTP endpoint is a single point of
 // failure.  Robinhood Chain's public endpoint is rate-limited and carries no
 // SLA, so it throttles and transiently 5xxs like any other.  `fallback()`
-// cycles through a ranked
-// list and demotes flapping endpoints with an exponential back-off; combined
-// with a small `retryCount` per leg, this is the smallest-possible defence
+// tries the legs in order and moves to the next on failure; combined with a
+// small `retryCount` per leg, this is the smallest-possible defence
 // against transient RPC failures killing user write transactions mid-flow.
 //
 // Endpoint precedence:
@@ -35,9 +34,15 @@ const Toaster = dynamic<ToasterProps>(
 //   2. Public official endpoint (Base, etc.) — last-resort, frequently
 //      throttled but always reachable.
 //
-// `rank: true` lets wagmi probe latency + stability and prefer the snappier
-// leg automatically.  `retryCount: 1` on each `http()` means transient 5xx
-// triggers ONE quick retry before promoting to the next fallback leg.
+// `retryCount: 1` on each `http()` means transient 5xx triggers ONE quick
+// retry before promoting to the next fallback leg.
+//
+// No `rank`. viem starts a ranking loop — a `net_listening` ping to every leg,
+// forever — each time the transport is instantiated, and it is instantiated
+// more than once: wagmi's client, and the WalletConnect connector's
+// `extractRpcUrls` on every provider init. On toshx.xyz that was ~94 % of all
+// RPC traffic at rest (80 pings to 5 reads in 20 s) and, after repeated
+// WalletConnect inits, ~190 requests a second that never stop.
 
 // Takes the VALUE, not the variable name.  `process.env[name]` looks
 // equivalent and is not: Next.js inlines `NEXT_PUBLIC_*` by substituting the
@@ -59,8 +64,7 @@ function buildTargetTransport() {
   const candidates: string[] = []
   // A chain-named variable only means anything when that chain is the target.
   // Taking one unconditionally put a testnet endpoint in the candidate list of
-  // a production build — and `rank: true` sorts by latency, not by correctness,
-  // so a healthy wrong-chain leg could win the ranking and answer every
+  // a production build, where a healthy wrong-chain leg could answer every
   // balance, allowance and quote read from the testnet.
   // `NEXT_PUBLIC_RPC_URL` names no chain and stays the universal override.
   const premium =
@@ -92,7 +96,6 @@ function buildTargetTransport() {
     candidates.map((url) =>
       http(url, { retryCount: 1, retryDelay: 200, timeout: 12_000 }),
     ),
-    { rank: true },
   )
 }
 
