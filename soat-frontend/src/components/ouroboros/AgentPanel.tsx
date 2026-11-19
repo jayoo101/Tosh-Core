@@ -6,6 +6,7 @@ import { useReadContract } from 'wagmi'
 
 import { Panel, Row } from '@/components/x/Panel'
 import { cn, useNowSec } from '@/components/ui'
+import { fill } from '@/i18n'
 import { AgentAddressField, AgentModeSheet, useAgentAddress, type AgentStep } from '@/components/v2/AgentModeSheet'
 import { NATIVE_SYMBOL } from '@/lib/chain'
 import { TARGET_CHAIN_ID } from '@/lib/contracts'
@@ -37,7 +38,11 @@ export function AgentPanel({ state, onDone }: { state: OuroState; onDone: () => 
   const done = () => { void refetch(); onDone() }
 
   const isL2 = state.phase === 'L2'
-  const minting = state.phase === 'L1' || isL2
+  // Before L1 the L1 mint can be prepared, not sent; a BNB quote would be stale by the open.
+  const early = state.phase === 'Pending'
+  const minting = state.phase === 'L1' || isL2 || early
+  const pay = payBnb && !early
+  const opensAt = `${new Date(state.l1Start * 1000).toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).slice(0, 16)} (UTC+8)`
   const soldLeft = Number(L2_TOTAL_SHARES - state.l2Minted)
   const poolCap = isL2 ? l2PoolCap(state) : MAX_SHARES
   const max = Math.max(0, Math.min(MAX_SHARES, user.remaining, isL2 ? soldLeft : MAX_SHARES, poolCap))
@@ -53,21 +58,21 @@ export function AgentPanel({ state, onDone }: { state: OuroState; onDone: () => 
   // Quoted on the most the mint may cost; the contract refunds the BNB it does not spend.
   const { data: bnbQuote } = useReadContract({
     address: OURO_MINT, abi: OURO_MINT_ABI, functionName: 'quoteBnb', args: [maxPay], chainId: TARGET_CHAIN_ID,
-    query: { enabled: payBnb && cost > 0n, refetchInterval: 6_000 },
+    query: { enabled: pay && cost > 0n, refetchInterval: 6_000 },
   })
   const bnbValue = bnbQuote === undefined ? undefined : bnbQuote + (bnbQuote * BNB_BUFFER_BPS) / 10_000n
 
   const mintSteps = ((): AgentStep[] | null => {
     if (!OURO_MINT || !OURO_USDT || !agent || max === 0 || cost === 0n) return null
     if (isL2 && tokens === 0n) return null
-    if (payBnb && bnbValue === undefined) return null
+    if (pay && bnbValue === undefined) return null
     const minTokens = (tokens * (10_000n - L2_SLIPPAGE_BPS)) / 10_000n
     const call: AgentStep = isL2
       ? { note: `${c.mint} ${n} · L2`, to: OURO_MINT, abi: OURO_MINT_ABI, functionName: 'mintL2',
-          args: [BigInt(n), maxPay, minTokens, ref.ref], value: payBnb ? bnbValue : undefined }
+          args: [BigInt(n), maxPay, minTokens, ref.ref], value: pay ? bnbValue : undefined }
       : { note: `${c.mint} ${n} · L1`, to: OURO_MINT, abi: OURO_MINT_ABI, functionName: 'mintL1',
-          args: [BigInt(n), cost, ref.ref], value: payBnb ? bnbValue : undefined }
-    if (payBnb) return [call]
+          args: [BigInt(n), cost, ref.ref], value: pay ? bnbValue : undefined }
+    if (pay) return [call]
     return [
       { note: `${c.approve} ${fmt(maxPay)}`, to: OURO_USDT, abi: erc20Abi, functionName: 'approve', args: [OURO_MINT, maxPay] },
       call,
@@ -96,6 +101,8 @@ export function AgentPanel({ state, onDone }: { state: OuroState; onDone: () => 
         </dl>
       )}
 
+      {early && <p className="text-note text-warning">{fill(c.agentEarly, { time: opensAt })}</p>}
+
       {agent && minting && (
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-end gap-3">
@@ -107,27 +114,32 @@ export function AgentPanel({ state, onDone }: { state: OuroState; onDone: () => 
                 className="w-28 rounded-input border border-border-subtle bg-bg-subtle px-3 py-2 font-mono text-text-primary"
               />
             </label>
-            <div className="flex overflow-hidden rounded-input border border-border-subtle">
-              {(['USDT', NATIVE_SYMBOL] as const).map((label, i) => (
-                <button
-                  key={label} type="button" onClick={() => setPayBnb(i === 1)}
-                  className={cn('px-3 py-2 font-mono text-note',
-                    payBnb === (i === 1) ? 'bg-brand text-bg-base' : 'text-text-secondary hover:bg-surface-hover')}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            {!early && (
+              <div className="flex overflow-hidden rounded-input border border-border-subtle">
+                {(['USDT', NATIVE_SYMBOL] as const).map((label, i) => (
+                  <button
+                    key={label} type="button" onClick={() => setPayBnb(i === 1)}
+                    className={cn('px-3 py-2 font-mono text-note',
+                      payBnb === (i === 1) ? 'bg-brand text-bg-base' : 'text-text-secondary hover:bg-surface-hover')}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
             <span className="font-mono text-note text-text-secondary">
-              {payBnb ? (bnbValue === undefined ? '…' : `${fmt(bnbValue, 6)} ${NATIVE_SYMBOL}`) : `${fmt(cost)} USDT`}
+              {pay ? (bnbValue === undefined ? '…' : `${fmt(bnbValue, 6)} ${NATIVE_SYMBOL}`) : `${fmt(cost)} USDT`}
             </span>
           </div>
           <AgentModeSheet
             title={`${c.mint} ${n}`}
-            summary={c.agentMintSummary}
+            summary={early ? undefined : c.agentMintSummary}
             steps={mintSteps}
             pending={state.paused ? c.paused : isL2 && !state.poolSeeded ? c.awaitSeed : poolCap === 0 ? c.poolTooThin : max === 0 ? c.noAgent : undefined}
-            notes={ref.code ? [c.agentRefNote] : []}
+            notes={[
+              ...(early ? [fill(c.agentEarlyInstr, { time: opensAt, ts: state.l1Start })] : []),
+              ...(ref.code ? [c.agentRefNote] : []),
+            ]}
             onDone={done}
           />
         </div>

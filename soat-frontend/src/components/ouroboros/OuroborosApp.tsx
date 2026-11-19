@@ -70,7 +70,7 @@ function Live() {
         {phase === 'AwaitLaunch' && <LaunchPanel onDone={refresh} />}
         {phase === 'L2' && !state.poolSeeded && <SeedPanel state={state} address={address} onDone={refresh} />}
         {address && <ClaimPanel state={state} user={user} onDone={refresh} />}
-        {phase !== 'Pending' && phase !== 'Failed' && <AgentPanel state={state} onDone={refresh} />}
+        {phase && phase !== 'Failed' && <AgentPanel state={state} onDone={refresh} />}
       </div>
 
       {state.launched && (

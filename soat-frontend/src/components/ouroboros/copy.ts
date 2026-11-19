@@ -117,6 +117,8 @@ const ZH = {
   agentIntro: 'Agent ID 在 Binance Agentic Wallet 里、无法连接网页时，在此填入该钱包地址，复制生成的指令交给钱包执行。交易必须由持有 Agent ID 的钱包直接发出。',
   agentAddress: 'Agent 钱包地址',
   agentRefNote: '邀请码已写在铸造参数 ref 里，请原样发送，不要改动。',
+  agentEarly: 'L1 将于 {time} 开始。现在可以先生成并复制指令，开始后再让钱包发送铸造交易，提前发送会失败。提前准备只支持 USDT 支付。',
+  agentEarlyInstr: '注意：铸造交易 mintL1 必须在 {time}（Unix 时间 {ts}）之后发送，之前发送会失败。授权 approve 可以提前发送。',
   refCode: '邀请码',
   agentMintSummary: `先授权 USDT，再铸造；用 ${NATIVE_SYMBOL} 支付时只需一步，多付的 ${NATIVE_SYMBOL} 会退回。`,
 }
@@ -237,6 +239,8 @@ const EN: Copy = {
   agentIntro: 'If your Agent ID is in a Binance Agentic Wallet, which cannot connect to a site, enter that wallet address here and hand the generated instruction to the wallet. The transaction must be sent directly by the wallet holding the Agent ID.',
   agentAddress: 'Agent wallet address',
   agentRefNote: 'The referral code is in the mint’s ref argument; send it exactly as given.',
+  agentEarly: 'L1 opens at {time}. You can generate and copy the instruction now; have the wallet send the mint after it opens, as an earlier one fails. Preparing early is USDT only.',
+  agentEarlyInstr: 'Note: send the mintL1 transaction only after {time} (Unix time {ts}); before that it fails. The approve may be sent at any time.',
   refCode: 'Referral code',
   agentMintSummary: `Approve USDT, then mint. Paying in ${NATIVE_SYMBOL} is one step; any excess ${NATIVE_SYMBOL} is refunded.`,
 }
