@@ -84,7 +84,7 @@ async function copy(text: string): Promise<boolean> {
  * instruction that leaves the amount to the user. `defaultOpen` is followed
  * until the user toggles the sheet themselves.
  */
-export function AgentModeSheet({ title, openLabel, summary, steps, template, pending, notes = [], defaultOpen = false, onDone }: {
+export function AgentModeSheet({ title, openLabel, summary, steps, template, pending, notes = [], defaultOpen = false, addressField = true, onDone }: {
   title: string
   /** The closed sheet's button, when the generic label would not tell several sheets apart. */
   openLabel?: string
@@ -95,6 +95,8 @@ export function AgentModeSheet({ title, openLabel, summary, steps, template, pen
   pending?: string
   notes?: string[]
   defaultOpen?: boolean
+  /** Off when the page already shows the stored address field. */
+  addressField?: boolean
   onDone?: () => void
 }) {
   const t = useT().v2
@@ -169,7 +171,7 @@ export function AgentModeSheet({ title, openLabel, summary, steps, template, pen
       ) : (
         <p className="text-text-tertiary">{pending ?? t.agentFillFirst}</p>
       )}
-      <Field label={t.agentAddrLabel} value={stored} onValueChange={writeAddr} placeholder="0x…" />
+      {addressField && <Field label={t.agentAddrLabel} value={stored} onValueChange={writeAddr} placeholder="0x…" />}
       {account && <p className={seen ? 'text-success' : 'text-text-tertiary'}>{seen ? t.agentSeen : t.agentWatching}</p>}
     </CardWell>
   )

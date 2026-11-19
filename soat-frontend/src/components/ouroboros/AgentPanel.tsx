@@ -47,7 +47,9 @@ export function AgentPanel({ state, onDone }: { state: OuroState; onDone: () => 
   const opensAt = `${new Date(state.l1Start * 1000).toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).slice(0, 16)} (UTC+8)`
   const soldLeft = Number(L2_TOTAL_SHARES - state.l2Minted)
   const poolCap = isL2 ? l2PoolCap(state) : MAX_SHARES
-  const max = Math.max(0, Math.min(MAX_SHARES, user.remaining, isL2 ? soldLeft : MAX_SHARES, poolCap))
+  // Without an address the quota is unknown; the instruction has the wallet check it before sending.
+  const quota = agent ? user.remaining : MAX_SHARES
+  const max = Math.max(0, Math.min(MAX_SHARES, quota, isL2 ? soldLeft : MAX_SHARES, poolCap))
   const n = Math.min(Math.max(shares, 1), Math.max(max, 1))
 
   const { data: l2Quote } = useReadContract({
@@ -66,7 +68,7 @@ export function AgentPanel({ state, onDone }: { state: OuroState; onDone: () => 
   const bnbValue = bnbQuote === undefined ? undefined : bnbQuote + (bnbQuote * buffer) / 10_000n
 
   const mintSteps = ((): AgentStep[] | null => {
-    if (!OURO_MINT || !OURO_USDT || !agent || max === 0 || cost === 0n) return null
+    if (!OURO_MINT || !OURO_USDT || max === 0 || cost === 0n) return null
     if (isL2 && tokens === 0n) return null
     if (pay && bnbValue === undefined) return null
     const minTokens = (tokens * (10_000n - L2_SLIPPAGE_BPS)) / 10_000n
@@ -106,7 +108,7 @@ export function AgentPanel({ state, onDone }: { state: OuroState; onDone: () => 
 
       {early && <p className="text-note text-warning">{fill(c.agentEarly, { time: opensAt })}</p>}
 
-      {agent && minting && (
+      {minting && (
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-end gap-3">
             <label className="flex flex-col gap-1 text-note text-text-tertiary">
@@ -137,8 +139,10 @@ export function AgentPanel({ state, onDone }: { state: OuroState; onDone: () => 
             summary={c.agentMintSummary}
             steps={mintSteps}
             pending={state.paused ? c.paused : isL2 && !state.poolSeeded ? c.awaitSeed : poolCap === 0 ? c.poolTooThin : max === 0 ? c.noAgent : undefined}
+            addressField={false}
             notes={[
-              ...(early ? [fill(c.agentEarlyInstr, { time: opensAt, ts: state.l1Start })] : []),
+              ...(agent ? [] : [fill(c.agentQuotaInstr, { mint: OURO_MINT ?? '', n: String(n) })]),
+              ...(early ? [fill(c.agentEarlyInstr, { time: opensAt, ts: state.l1Start }) + (pay ? '' : c.agentEarlyApprove)] : []),
               ...(ref.code ? [c.agentRefNote] : []),
             ]}
             onDone={done}
@@ -147,7 +151,7 @@ export function AgentPanel({ state, onDone }: { state: OuroState; onDone: () => 
       )}
 
       {agent && claimSteps.length > 0 && (
-        <AgentModeSheet title={c.claimTitle} openLabel={c.claimTitle} steps={claimSteps} onDone={done} />
+        <AgentModeSheet title={c.claimTitle} openLabel={c.claimTitle} steps={claimSteps} addressField={false} onDone={done} />
       )}
     </Panel>
   )
