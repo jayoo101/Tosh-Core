@@ -64,14 +64,18 @@ function Live() {
         <Stat label={c.statSupply} value={fmtCompact(state.supply)} sub="/ 21B" />
       </StatGrid>
 
-      <Timeline phase={phase} />
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        {minting && <MintPanel state={state} user={user} address={address} onDone={refresh} />}
-        {phase === 'AwaitLaunch' && <LaunchPanel onDone={refresh} />}
-        {phase === 'L2' && !state.poolSeeded && <SeedPanel state={state} address={address} onDone={refresh} />}
-        {address && <ClaimPanel state={state} user={user} onDone={refresh} />}
-        {phase && phase !== 'Failed' && <AgentPanel state={state} onDone={refresh} />}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:items-start">
+        <div className="flex min-w-0 flex-col gap-6">
+          {minting && <MintPanel state={state} user={user} address={address} onDone={refresh} />}
+          {phase === 'AwaitLaunch' && <LaunchPanel onDone={refresh} />}
+          {phase === 'L2' && !state.poolSeeded && <SeedPanel state={state} address={address} onDone={refresh} />}
+          {address && <ClaimPanel state={state} user={user} onDone={refresh} />}
+          {phase && phase !== 'Failed' && <AgentPanel state={state} onDone={refresh} />}
+        </div>
+        <aside className="flex min-w-0 flex-col gap-6">
+          <Timeline phase={phase} />
+          <Contracts />
+        </aside>
       </div>
 
       {state.launched && (
@@ -81,7 +85,6 @@ function Live() {
       <LadderTable minted={Number(state.l2Minted)} />
       <Leaderboards address={address} />
       <Risk />
-      <Contracts />
     </div>
   )
 }
@@ -91,17 +94,24 @@ function Hero({ state }: { state: OuroState }) {
   const p = state.phase
 
   return (
-    <header className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="flex size-12 shrink-0 items-center justify-center rounded-card border border-brand/30 bg-brand/10 text-brand shadow-[0_0_18px_-4px_var(--tosh-brand)]">
-          <OuroborosMark className="size-7" />
-        </span>
-        <h1 className="text-hero text-text-primary">{c.title}</h1>
-        {p && <Badge tone={p === 'Failed' ? 'danger' : 'info'} pip live={p === 'L1' || p === 'L2'}>{c.phase[p]}</Badge>}
-        {state.paused && <Badge tone="warn">{c.paused}</Badge>}
+    <header className="glow-frame glow-flow relative isolate overflow-hidden rounded-panel bg-surface-card/85">
+      <div aria-hidden="true" className="hero-grid pointer-events-none absolute inset-0 -z-10" />
+      <div className="flex flex-col gap-6 p-6 md:p-8 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="flex size-14 shrink-0 items-center justify-center rounded-card border border-brand/30 bg-brand/10 text-brand shadow-[0_0_18px_-4px_var(--tosh-brand)]">
+              <OuroborosMark className="size-9" />
+            </span>
+            <h1 className="text-hero text-text-primary">{c.title}</h1>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {p && <Badge tone={p === 'Failed' ? 'danger' : 'info'} pip live={p === 'L1' || p === 'L2'}>{c.phase[p]}</Badge>}
+            {state.paused && <Badge tone="warn">{c.paused}</Badge>}
+          </div>
+          <p className="max-w-xl text-pretty text-body text-text-secondary">{c.tagline}</p>
+        </div>
+        <Countdown state={state} className="shrink-0" />
       </div>
-      <p className="text-body text-text-secondary">{c.tagline}</p>
-      <Countdown state={state} className="mt-2" />
     </header>
   )
 }
@@ -112,18 +122,25 @@ function Timeline({ phase }: { phase: Phase | undefined }) {
   const at = phase === 'SoldOut' ? ORDER.length : phase ? ORDER.indexOf(phase) : -1
   return (
     <Panel title={c.timeline}>
-      <ol className="grid gap-3 md:grid-cols-4">
+      <ol className="flex flex-col">
         {steps.map(([id, text], i) => (
-          <li
-            key={id}
-            className={cn(
-              'rounded-card border px-4 py-3 text-note',
-              i === at ? 'border-brand bg-brand/5 text-text-primary'
-                : i < at ? 'border-border-subtle text-text-tertiary'
-                  : 'border-border-subtle text-text-secondary',
+          <li key={id} className="relative flex gap-4 pb-5 last:pb-0">
+            {i < steps.length - 1 && (
+              <span aria-hidden className={cn('absolute left-[15px] top-8 h-[calc(100%-2rem)] w-px', i < at ? 'bg-brand/60' : 'bg-border-subtle')} />
             )}
-          >
-            {text}
+            <span
+              className={cn(
+                'flex size-8 shrink-0 items-center justify-center rounded-full border font-mono text-label font-bold',
+                i === at ? 'border-brand bg-brand text-bg-base shadow-[0_0_14px_-2px_var(--tosh-brand)]'
+                  : i < at ? 'border-brand/60 text-brand'
+                    : 'border-border-subtle text-text-tertiary',
+              )}
+            >
+              {i + 1}
+            </span>
+            <p className={cn('pt-1.5 text-note', i === at ? 'text-text-primary' : i < at ? 'text-text-tertiary' : 'text-text-secondary')}>
+              {text}
+            </p>
           </li>
         ))}
       </ol>
@@ -236,11 +253,11 @@ function Contracts() {
   ]
   return (
     <Panel title={c.contracts}>
-      <dl className="flex flex-col gap-2 text-note">
+      <dl className="flex flex-col divide-y divide-border-subtle text-note">
         {rows.filter(([, a]) => a).map(([k, a]) => (
-          <div key={k} className="flex flex-wrap items-center justify-between gap-2">
+          <div key={k} className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
             <dt className="text-text-tertiary">{k}</dt>
-            <dd className="font-mono"><AddressLink value={a} display="full" /></dd>
+            <dd className="font-mono"><AddressLink value={a} /></dd>
           </div>
         ))}
       </dl>

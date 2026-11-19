@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useReadContract } from 'wagmi'
 
 import { Panel, Row } from '@/components/x/Panel'
-import { Button, cn, useQuoteApproval, useTxAction } from '@/components/ui'
+import { Button, useQuoteApproval, useTxAction } from '@/components/ui'
 import { useWalletPicker } from '@/components/WalletPicker'
 import { NATIVE_SYMBOL } from '@/lib/chain'
 import { TARGET_CHAIN_ID } from '@/lib/contracts'
@@ -16,6 +16,7 @@ import { useOuroCopy } from './copy'
 import { fmt, fmtCompact } from './fmt'
 import { l2PoolCap, type OuroState, type OuroUser } from './useOuro'
 import { useOuroRef } from './useOuroRef'
+import { PayToggle, SharesInput } from './SharesInput'
 
 /** BNB sent above the quote so a feed tick between read and inclusion does not revert; the excess is refunded. */
 const BNB_BUFFER_BPS = 50n
@@ -106,37 +107,9 @@ export function MintPanel({ state, user, address, onDone }: {
   return (
     <Panel title={`${c.mintTitle} · ${state.phase ? c.phase[state.phase] : ''}`}>
       <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1 text-note text-text-tertiary">
-            {c.shares}
-            <input
-              type="number"
-              min={1}
-              max={Math.max(max, 1)}
-              value={n}
-              onChange={e => setShares(Math.floor(Number(e.target.value)) || 1)}
-              className="w-28 rounded-input border border-border-subtle bg-bg-subtle px-3 py-2 font-mono text-text-primary"
-            />
-          </label>
-          <Button label="MAX" variant="ghost" size="sm" onClick={() => setShares(max)} disabled={max === 0} />
-          <div className="flex flex-col gap-1 text-note text-text-tertiary">
-            {c.payWith}
-            <div className="flex overflow-hidden rounded-input border border-border-subtle">
-              {(['USDT', NATIVE_SYMBOL] as const).map((label, i) => (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => setPayBnb(i === 1)}
-                  className={cn(
-                    'px-3 py-2 font-mono text-note',
-                    payBnb === (i === 1) ? 'bg-brand text-bg-base' : 'text-text-secondary hover:bg-surface-hover',
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <SharesInput label={c.shares} value={n} max={max} onChange={setShares} />
+          <PayToggle label={c.payWith} bnb={payBnb} onChange={setPayBnb} />
         </div>
 
         <dl className="flex flex-col gap-2 text-note">
