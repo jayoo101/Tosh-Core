@@ -13,7 +13,7 @@ import { OURO_BIDBOOK_ABI, OURO_MINT_ABI } from '@/lib/ouroboros/abis'
 import { OURO_BIDBOOK, OURO_MINT, OURO_TOKEN, OURO_USDT } from '@/lib/ouroboros/config'
 
 import { useOuroCopy } from './copy'
-import { fmt, fmtCompact, fmtPrice, parseAmount, shortAddr } from './fmt'
+import { fmt, fmtCompact, fmtPrice, parseAmount } from './fmt'
 import type { OuroUser } from './useOuro'
 
 const ONE = 10n ** 18n
@@ -28,6 +28,48 @@ interface Bid {
   buyer: Address
   price: bigint
   usdtLeft: bigint
+}
+
+/** One price level: every open bid at that price, stacked for display. */
+interface Level {
+  price: bigint
+  usdtLeft: bigint
+  fillable: bigint
+  /** Non-mine bids, oldest first — a sell fills the head. */
+  others: Bid[]
+  /** The caller's bids at this price, oldest first — cancel takes the head. */
+  mine: Bid[]
+}
+
+function stackByPrice(bids: Bid[], mineAddr: string | undefined): Level[] {
+  const map = new Map<string, Bid[]>()
+  for (const b of bids) {
+    const k = b.price.toString()
+    const list = map.get(k)
+    if (list) list.push(b)
+    else map.set(k, [b])
+  }
+  const levels: Level[] = []
+  for (const group of map.values()) {
+    group.sort((a, b) => Number(a.id - b.id))
+    const usdtLeft = group.reduce((s, b) => s + b.usdtLeft, 0n)
+    const price = group[0].price
+    const mine: Bid[] = []
+    const others: Bid[] = []
+    for (const b of group) {
+      if (mineAddr && b.buyer.toLowerCase() === mineAddr) mine.push(b)
+      else others.push(b)
+    }
+    levels.push({
+      price,
+      usdtLeft,
+      fillable: price === 0n ? 0n : (usdtLeft * ONE) / price,
+      others,
+      mine,
+    })
+  }
+  levels.sort((a, b) => (b.price > a.price ? 1 : b.price < a.price ? -1 : 0))
+  return levels
 }
 
 function useOpenBids() {
@@ -107,10 +149,11 @@ export function BidBookPanel({ open, user, address, onDone }: {
 
   const mine = address?.toLowerCase()
   const visible = open ? bids : bids.filter(b => b.buyer.toLowerCase() === mine)
+  const levels = useMemo(() => stackByPrice(visible, mine), [visible, mine])
   if (!open && visible.length === 0) return null
 
   const depth = bids.reduce((s, b) => s + b.usdtLeft, 0n)
-  const best = bids[0]?.price
+  const best = levels[0]?.price
 
   return (
     <Panel title={c.bookTitle}>
@@ -118,7 +161,7 @@ export function BidBookPanel({ open, user, address, onDone }: {
 
       {open && (
         <div className="flex flex-wrap gap-x-6 gap-y-2 border-b border-border-subtle pb-4 font-mono text-note">
-          <span className="text-text-tertiary">{c.bookCount} <span className="text-text-primary">{bids.length}</span></span>
+          <span className="text-text-tertiary">{c.bookCount} <span className="text-text-primary">{levels.length}</span></span>
           <span className="text-text-tertiary">{c.bookBest} <span className="text-brand">{best !== undefined ? fmtPrice(best) : '—'}</span></span>
           <span className="text-text-tertiary">{c.bookDepth} <span className="text-text-primary">{fmt(depth, 2)} USDT</span></span>
           {l1Floor !== undefined && (
@@ -170,7 +213,7 @@ export function BidBookPanel({ open, user, address, onDone }: {
 
       <div className="flex flex-col gap-3">
         <h3 className="text-label uppercase text-text-tertiary">{c.bookList}</h3>
-        {visible.length === 0 ? (
+        {levels.length === 0 ? (
           <p className="rounded-card border border-dashed border-border-subtle px-4 py-8 text-center text-note text-text-tertiary">
             {c.noBids}
           </p>
@@ -182,13 +225,12 @@ export function BidBookPanel({ open, user, address, onDone }: {
                   <th className="px-3 py-2 font-normal">{c.price}</th>
                   <th className="px-3 py-2 text-right font-normal">{c.left}</th>
                   <th className="px-3 py-2 text-right font-normal">{c.tokensLeft}</th>
-                  <th className="px-3 py-2 font-normal">{c.account}</th>
                   <th className="px-3 py-2 font-normal" />
                 </tr>
               </thead>
               <tbody>
-                {visible.map(b => (
-                  <BidRow key={b.id.toString()} bid={b} open={open} mine={b.buyer.toLowerCase() === mine} user={user} onDone={done} />
+                {levels.map(level => (
+                  <LevelRow key={level.price.toString()} level={level} open={open} user={user} onDone={done} />
                 ))}
               </tbody>
             </table>
@@ -199,31 +241,35 @@ export function BidBookPanel({ open, user, address, onDone }: {
   )
 }
 
-function BidRow({ bid, open, mine, user, onDone }: {
-  bid: Bid
+function LevelRow({ level, open, user, onDone }: {
+  level: Level
   open: boolean
-  mine: boolean
   user: OuroUser
   onDone: () => void
 }) {
   const c = useOuroCopy()
   const [amount, setAmount] = useState('')
-  const fillable = (bid.usdtLeft * ONE) / bid.price
+  const othersUsdt = level.others.reduce((s, b) => s + b.usdtLeft, 0n)
+  const othersFillable = level.price === 0n || othersUsdt === 0n ? 0n : (othersUsdt * ONE) / level.price
+  const target = level.others[0]
+  const targetFillable = target ? (target.usdtLeft * ONE) / target.price : 0n
   const qty = parseAmount(amount) ?? 0n
-  const gross = (qty * bid.price) / ONE
+  // One transaction fills the oldest non-mine bid at this price.
+  const take = target && qty > 0n ? (qty < targetFillable ? qty : targetFillable) : 0n
+  const gross = target ? (take * target.price) / ONE : 0n
   const net = gross - (gross * FEE_BPS) / 10_000n
-  const approval = useQuoteApproval(OURO_BIDBOOK, qty, OURO_TOKEN!)
+  const approval = useQuoteApproval(OURO_BIDBOOK, take, OURO_TOKEN!)
   const fill = useTxAction({ action: 'fill', onConfirmed: () => { approval.refetch(); onDone() } })
   const cancel = useTxAction({ action: 'cancel', onConfirmed: onDone })
-  const maxSell = user.tokenBalance < fillable ? user.tokenBalance : fillable
-  const canSell = open && !mine && user.tokenBalance > 0n
+  const maxSell = user.tokenBalance < othersFillable ? user.tokenBalance : othersFillable
+  const canSell = open && level.others.length > 0 && user.tokenBalance > 0n
+  const mineHead = level.mine[0]
 
   return (
-    <tr className={cn('border-b border-border-subtle align-top last:border-b-0', mine && 'bg-brand/5')}>
-      <td className="px-3 py-3 font-mono text-brand">{fmtPrice(bid.price)}</td>
-      <td className="px-3 py-3 text-right font-mono">{fmt(bid.usdtLeft, 2)}</td>
-      <td className="px-3 py-3 text-right font-mono text-text-secondary">{fmtCompact(fillable)}</td>
-      <td className="px-3 py-3 font-mono">{mine ? <span className="text-brand">{c.mine}</span> : shortAddr(bid.buyer)}</td>
+    <tr className={cn('border-b border-border-subtle align-top last:border-b-0', level.mine.length > 0 && 'bg-brand/5')}>
+      <td className="px-3 py-3 font-mono text-brand">{fmtPrice(level.price)}</td>
+      <td className="px-3 py-3 text-right font-mono">{fmt(level.usdtLeft, 2)}</td>
+      <td className="px-3 py-3 text-right font-mono text-text-secondary">{fmtCompact(level.fillable)}</td>
       <td className="px-3 py-3">
         <div className="flex flex-col items-end gap-2">
           {canSell && (
@@ -245,7 +291,7 @@ function BidRow({ bid, open, mine, user, onDone }: {
                   MAX
                 </button>
               </div>
-              {qty > 0n && (
+              {take > 0n && (
                 <span className="font-mono text-text-tertiary">{c.youGet}: {fmt(net, 2)}</span>
               )}
               {approval.needsApproval ? (
@@ -254,22 +300,23 @@ function BidRow({ bid, open, mine, user, onDone }: {
                 <Button
                   label={c.sell}
                   size="sm"
-                  disabled={fill.isBusy || qty === 0n || qty > maxSell}
-                  onClick={() => OURO_BIDBOOK && fill.send({
-                    address: OURO_BIDBOOK, abi: OURO_BIDBOOK_ABI, functionName: 'fill', args: [bid.id, qty, net],
+                  disabled={fill.isBusy || take === 0n || !target}
+                  onClick={() => target && OURO_BIDBOOK && fill.send({
+                    address: OURO_BIDBOOK, abi: OURO_BIDBOOK_ABI, functionName: 'fill',
+                    args: [target.id, take, net],
                   })}
                 />
               )}
             </>
           )}
-          {mine && (
+          {mineHead && (
             <Button
-              label={c.cancel}
+              label={level.mine.length > 1 ? `${c.cancel} · ${level.mine.length}` : c.cancel}
               size="sm"
               variant="danger"
               disabled={cancel.isBusy}
               onClick={() => OURO_BIDBOOK && cancel.send({
-                address: OURO_BIDBOOK, abi: OURO_BIDBOOK_ABI, functionName: 'cancel', args: [bid.id],
+                address: OURO_BIDBOOK, abi: OURO_BIDBOOK_ABI, functionName: 'cancel', args: [mineHead.id],
               })}
             />
           )}
