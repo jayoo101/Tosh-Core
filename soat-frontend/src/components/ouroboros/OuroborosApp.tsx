@@ -78,8 +78,12 @@ function Live() {
         </aside>
       </div>
 
-      {state.launched && (
+      {state.launched ? (
         <BidBookPanel open={phase === 'L1_5'} user={user} address={address} onDone={refresh} />
+      ) : phase && phase !== 'Failed' && (
+        <Panel title={c.bookTitle}>
+          <p className="text-note text-text-secondary">{c.bookSoon}</p>
+        </Panel>
       )}
 
       <LadderTable minted={Number(state.l2Minted)} />
