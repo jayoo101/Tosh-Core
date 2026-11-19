@@ -1,7 +1,7 @@
 'use client'
 
 import { Panel, Stat, StatGrid } from '@/components/x/Panel'
-import { AddressLink, Badge, Button, cn, formatCountdown, useNowSec, useTxAction } from '@/components/ui'
+import { AddressLink, Badge, Button, cn, useNowSec, useTxAction } from '@/components/ui'
 import { useState } from 'react'
 import type { Address } from 'viem'
 import { useReadContract, useReadContracts } from 'wagmi'
@@ -21,7 +21,8 @@ import { LadderTable } from './LadderTable'
 import { Leaderboards } from './Leaderboards'
 import { MintPanel } from './MintPanel'
 import { OuroborosMark } from './OuroborosMark'
-import { phaseCountdown, useOuroState, useOuroUser, type OuroState } from './useOuro'
+import { Countdown } from './Countdown'
+import { useOuroState, useOuroUser, type OuroState } from './useOuro'
 import { useOuroRef } from './useOuroRef'
 
 const ORDER: Phase[] = ['L1', 'AwaitLaunch', 'L1_5', 'L2']
@@ -87,9 +88,7 @@ function Live() {
 
 function Hero({ state }: { state: OuroState }) {
   const c = useOuroCopy()
-  const now = useNowSec()
   const p = state.phase
-  const countdown = phaseCountdown(state, c, now)
 
   return (
     <header className="flex flex-col gap-3">
@@ -102,11 +101,7 @@ function Hero({ state }: { state: OuroState }) {
         {state.paused && <Badge tone="warn">{c.paused}</Badge>}
       </div>
       <p className="text-body text-text-secondary">{c.tagline}</p>
-      {countdown && now > 0 && (
-        <p className="font-mono text-readout text-brand">
-          {countdown[0]} {formatCountdown(Number(countdown[1]))}
-        </p>
-      )}
+      <Countdown state={state} className="mt-2" />
     </header>
   )
 }
