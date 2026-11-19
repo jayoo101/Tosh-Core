@@ -146,7 +146,6 @@ export function BidBookPanel({ open, user, address, onDone }: {
   const filledUsdt = volume?.[0]?.status === 'success' ? (volume[0].result as bigint) : 0n
   const depthUsdt = levels.reduce((s, l) => s + l.usdtLeft, 0n)
   const best = levels[0]?.price
-  const openOrders = levels.reduce((s, l) => s + l.count, 0)
 
   if (!open && myBids.length === 0) return null
 
@@ -165,7 +164,6 @@ export function BidBookPanel({ open, user, address, onDone }: {
     [c.bookDepth, `${fmt(depthUsdt, 2)} USDT`],
     [c.bookVolume, `${fmtCompact(filledUsdt)} USDT`],
     [c.bookCount, levels.length.toLocaleString()],
-    [c.bookOrders, openOrders.toLocaleString()],
   ]
 
   return (
@@ -212,8 +210,7 @@ function DepthTable({ levels }: { levels: Level[] }) {
             <tr className="border-b border-border-subtle text-left text-text-tertiary">
               <th className="py-2 pr-2 font-normal">{c.price}</th>
               <th className="py-2 pr-2 text-right font-normal">{c.tokensLeft}</th>
-              <th className="py-2 pr-2 text-right font-normal">{c.left}</th>
-              <th className="py-2 text-right font-normal">{c.bookOrders}</th>
+              <th className="py-2 text-right font-normal">{c.left}</th>
             </tr>
           </thead>
           <tbody>
@@ -221,8 +218,7 @@ function DepthTable({ levels }: { levels: Level[] }) {
               <tr key={l.price.toString()} className="border-b border-border-subtle last:border-b-0">
                 <td className="py-2 pr-2 text-brand">{fmtPrice(l.price)}</td>
                 <td className="py-2 pr-2 text-right text-text-primary">{fmtCompact(l.tokens)}</td>
-                <td className="py-2 pr-2 text-right text-text-primary">{fmt(l.usdtLeft, 2)}</td>
-                <td className="py-2 text-right text-text-secondary">{l.count}</td>
+                <td className="py-2 text-right text-text-primary">{fmt(l.usdtLeft, 2)}</td>
               </tr>
             ))}
           </tbody>
