@@ -68,7 +68,7 @@ export function SiteFooter({ t = EN }: { t?: Dictionary }) {
           X
         </a>
         <a
-          href="https://t.me/toshxprotocol"
+          href="https://t.me/toshxprotocol1"
           target="_blank"
           rel="noopener noreferrer"
           className={brandLinkCls}
