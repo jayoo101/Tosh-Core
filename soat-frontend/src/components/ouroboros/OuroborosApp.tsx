@@ -20,6 +20,7 @@ import { fmtCompact, fmtPrice, openingPrice, parseAmount, poolPrice } from './fm
 import { LadderTable } from './LadderTable'
 import { Leaderboards } from './Leaderboards'
 import { MintPanel } from './MintPanel'
+import { OuroborosMark } from './OuroborosMark'
 import { phaseCountdown, useOuroState, useOuroUser, type OuroState } from './useOuro'
 import { useOuroRef } from './useOuroRef'
 
@@ -93,6 +94,9 @@ function Hero({ state }: { state: OuroState }) {
   return (
     <header className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
+        <span className="flex size-12 shrink-0 items-center justify-center rounded-card border border-brand/30 bg-brand/10 text-brand shadow-[0_0_18px_-4px_var(--tosh-brand)]">
+          <OuroborosMark className="size-7" />
+        </span>
         <h1 className="text-hero text-text-primary">{c.title}</h1>
         {p && <Badge tone={p === 'Failed' ? 'danger' : 'info'} pip live={p === 'L1' || p === 'L2'}>{c.phase[p]}</Badge>}
         {state.paused && <Badge tone="warn">{c.paused}</Badge>}

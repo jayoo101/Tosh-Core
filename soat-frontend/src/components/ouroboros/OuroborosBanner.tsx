@@ -1,12 +1,13 @@
 'use client'
 
 import Link from 'next/link'
-import { ArrowRight, Infinity as InfinityIcon } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 
 import { Badge, formatCountdown, useNowSec } from '@/components/ui'
 import { OURO_ENABLED } from '@/lib/ouroboros/config'
 
 import { useOuroCopy } from './copy'
+import { OuroborosMark } from './OuroborosMark'
 import { phaseCountdown, useOuroState } from './useOuro'
 
 /** The home page's lead: the live Ouroboros phase and a way in. Renders nothing until the contracts are configured. */
@@ -30,8 +31,8 @@ function Live() {
       <div aria-hidden="true" className="hero-grid pointer-events-none absolute inset-0 -z-10" />
       <div className="flex flex-col gap-6 p-6 md:flex-row md:items-center md:justify-between md:p-8">
         <div className="flex items-start gap-4">
-          <span className="flex size-12 shrink-0 items-center justify-center rounded-card bg-brand/10 text-brand">
-            <InfinityIcon className="size-6" aria-hidden />
+          <span className="flex size-12 shrink-0 items-center justify-center rounded-card border border-brand/30 bg-brand/10 text-brand shadow-[0_0_18px_-4px_var(--tosh-brand)]">
+            <OuroborosMark className="size-7" />
           </span>
           <div className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center gap-2">
