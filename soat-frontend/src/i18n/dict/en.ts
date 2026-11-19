@@ -548,6 +548,7 @@ export const EN = {
     navHome:           'Home',
     navMarket:         'Market',
     navWhitepaper:     'Whitepaper (中文)',
+    navOuroboros:      'Ouroboros',
     whitepaperSource:  'Source and history on GitHub',
     whitepaperUnavailable: 'The whitepaper could not be loaded. Refresh in a moment, or read it on GitHub.',
     navLaunching:      'Launching',

@@ -83,8 +83,10 @@ async function copy(text: string): Promise<boolean> {
  * instruction that leaves the amount to the user. `defaultOpen` is followed
  * until the user toggles the sheet themselves.
  */
-export function AgentModeSheet({ title, summary, steps, template, pending, notes = [], defaultOpen = false, onDone }: {
+export function AgentModeSheet({ title, openLabel, summary, steps, template, pending, notes = [], defaultOpen = false, onDone }: {
   title: string
+  /** The closed sheet's button, when the generic label would not tell several sheets apart. */
+  openLabel?: string
   summary?: string
   steps: AgentStep[] | null
   template?: string
@@ -124,7 +126,7 @@ export function AgentModeSheet({ title, summary, steps, template, pending, notes
   const flash = (which: 'text' | 'data') => { setCopied(which); setTimeout(() => setCopied(null), 1500) }
 
   if (!open) {
-    return <Button size="sm" variant="primary" label={t.agentOpen} onClick={() => setOpen(true)} />
+    return <Button size="sm" variant="primary" label={openLabel ?? t.agentOpen} onClick={() => setOpen(true)} />
   }
 
   return (
