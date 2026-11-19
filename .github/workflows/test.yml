@@ -275,7 +275,15 @@ jobs:
           # 521 -> 526: L2Mint audit regressions (halt overlap x2, shelf cap floor, claimFor, AutoLp same-block defer).
           # 526 -> 532: Buyback audit fixes (pool-manager check, 3 % band, burn-fails-then-convert) and rescue (3).
           # 532 -> 533: VerifyV31 reads each ownership stage and refuses drift.
-          floor=533
+          # 533 -> 572: test/ouroboros, the token, mint and bid book (31), their invariants (6)
+          # and the BSC fork rehearsal (2).
+          # 572 -> 576: opening price from L1.5 (signer price, L1 floor, volume gate, price cap).
+          # 576 -> 577: mints log the partner referral code they are given.
+          # 577 -> 580: open seeding at par after three days, ownership cannot be
+          # renounced, and each L2 mint vests on its own clock.
+          # 580 -> 583: open seeding waits for an unpause, a contract that is not
+          # the Safe cannot seed, and the vesting queues add up (invariant).
+          floor=583
 
           read_count() {
             grep -oE '\(([0-9]+) total tests\)' "$1" | tail -1 | grep -oE '[0-9]+'
@@ -572,32 +580,40 @@ jobs:
       # function, so the script RECOVERS the scope by parsing back from the
       # reported line. See its header for what that costs.
       #
-      # No install step. Aderyn publishes a single static binary and the
-      # action below fetches the pinned one; `pip install` has no equivalent
-      # here. The version in the `with:` block and the constant in the script
-      # have to change together, same as Slither's.
-      - name: Install Aderyn
+      # Built from source. The v0.6.8 release no longer carries its binary
+      # archives (only their .sha256 files and source.tar.gz remain), crates.io
+      # holds only yanked 0.1.x versions, and the npm package downloads the
+      # same missing archive. The source tarball's digest is pinned here rather
+      # than read from the release, and the binary is cached on it, so the
+      # build runs once per version. The version here and the constant in
+      # the script have to change together, same as Slither's.
+      - name: Cache Aderyn
+        id: aderyn-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.aderyn-bin
+          key: aderyn-0.6.8-src-2d4afdb52bae30f8
+
+      - name: Build Aderyn
+        if: steps.aderyn-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           VERSION=0.6.8
-          URL="https://github.com/Cyfrin/aderyn/releases/download/aderyn-v${VERSION}/aderyn-x86_64-unknown-linux-gnu.tar.xz"
-          curl -sSfL "$URL" -o /tmp/aderyn.tar.xz
-          curl -sSfL "${URL}.sha256" -o /tmp/aderyn.sha256
-          # Compare the digest rather than running `sha256sum -c`: the
-          # published file names the artefact with the build host's path
-          # prefix, so `-c` fails to resolve it and reports "no file was
-          # verified" — which exits 1 and looks like a mismatch.
-          PUBLISHED=$(awk '{print $1}' /tmp/aderyn.sha256)
-          ACTUAL=$(sha256sum /tmp/aderyn.tar.xz | awk '{print $1}')
-          [ "$PUBLISHED" = "$ACTUAL" ] || { echo "aderyn checksum mismatch"; exit 1; }
-          # Extract into a dedicated directory and address the binary by its
-          # known path. Searching /tmp for it walks the runner's whole temp
-          # tree, which both floods the log with "Permission denied" on
-          # systemd's private directories and would happily install any other
-          # file that happened to be called aderyn.
-          mkdir -p /tmp/aderyn-dist
-          tar -xJf /tmp/aderyn.tar.xz -C /tmp/aderyn-dist --strip-components=1
-          install -m 0755 /tmp/aderyn-dist/aderyn /usr/local/bin/aderyn
+          SOURCE_SHA256=2d4afdb52bae30f8488e5d9470a281d284c0b286455b61b474e6c2e7dafe343a
+          curl -sSfL "https://github.com/Cyfrin/aderyn/releases/download/aderyn-v${VERSION}/source.tar.gz" -o /tmp/aderyn-src.tar.gz
+          echo "${SOURCE_SHA256}  /tmp/aderyn-src.tar.gz" | sha256sum -c -
+          mkdir -p /tmp/aderyn-src
+          tar -xzf /tmp/aderyn-src.tar.gz -C /tmp/aderyn-src --strip-components=1
+          cd /tmp/aderyn-src
+          # rust-toolchain.toml pins the nightly it builds with.
+          rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal
+          cargo build --release --locked -p aderyn
+          mkdir -p ~/.aderyn-bin
+          install -m 0755 target/release/aderyn ~/.aderyn-bin/aderyn
+
+      - name: Install Aderyn
+        run: |
+          install -m 0755 ~/.aderyn-bin/aderyn /usr/local/bin/aderyn
           aderyn --version
 
       - name: Check the Aderyn triage matches a real run

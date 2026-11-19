@@ -424,6 +424,7 @@ export const ZH_CN: PartialDictionary = {
     navHome:           '首页',
     navMarket:         '市场',
     navWhitepaper:     '白皮书',
+    navOuroboros:      '衔尾蛇',
     whitepaperSource:  '在 GitHub 上查看源文件和修改记录',
     whitepaperUnavailable: '白皮书暂时加载不出来，请稍后刷新，或者到 GitHub 查看。',
     navLaunching:      '发射中',

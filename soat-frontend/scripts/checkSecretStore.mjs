@@ -158,6 +158,11 @@ const INVENTORY = {
     tier: 'secret',
     why: 'org:ci scope — uploads source maps and cuts releases against the Sentry org.',
   },
+  OURO_REF_PAYER_KEY: {
+    tier: 'secret',
+    why: 'Signs the hourly Ouroboros rebate transfers from NEXT_PUBLIC_OURO_REF_PAYER. A leak loses what '
+       + 'that hot wallet holds, so it holds about one cycle of payouts.',
+  },
 
   // ── Operator signing keys. No server-side use; never a remote store. ────
   CREATOR_PRIVATE_KEY: {
@@ -179,6 +184,17 @@ const INVENTORY = {
   NEXT_PUBLIC_V2_WBNB:               { tier: 'config', why: 'WBNB address the BNB factory settles in.' },
   NEXT_PUBLIC_V2_USDT:               { tier: 'config', why: 'USDT address the USDT factory settles in.' },
   NEXT_PUBLIC_V2_FROM_BLOCK:         { tier: 'config', why: 'Bid book deployment block; log scans start here.' },
+  NEXT_PUBLIC_OURO_TOKEN:            { tier: 'config', why: 'Ouroboros token address; public, shipped in the client bundle.' },
+  NEXT_PUBLIC_OURO_MINT:             { tier: 'config', why: 'Ouroboros mint address; public, shipped in the client bundle.' },
+  NEXT_PUBLIC_OURO_BIDBOOK:          { tier: 'config', why: 'Ouroboros L1.5 bid book address; public, shipped in the client bundle.' },
+  NEXT_PUBLIC_OURO_PAIR:             { tier: 'config', why: 'Ouroboros Pancake V2 pair address; public, shipped in the client bundle.' },
+  NEXT_PUBLIC_OURO_USDT:             { tier: 'config', why: 'USDT address the Ouroboros mint settles in.' },
+  NEXT_PUBLIC_OURO_TREASURY:         { tier: 'config', why: 'Ouroboros treasury (the Safe); public, shown on the page.' },
+  NEXT_PUBLIC_OURO_FROM_BLOCK:       { tier: 'config', why: 'Ouroboros mint deployment block; the indexer starts here.' },
+  NEXT_PUBLIC_OURO_REF_ADMIN:        { tier: 'config', why: 'Shows the referral admin UI. Set only when a Safe signer runs the site locally; unset in production.' },
+  NEXT_PUBLIC_OURO_REF_PAYER:        { tier: 'config', why: 'Ouroboros rebate payout hot wallet; public. Its USDT transfers to partners are recorded as paid.' },
+  OURO_REF_AUTOPAY:                  { tier: 'config', why: 'Set to 1 to run automatic rebate payouts hourly; anything else stops them.' },
+  OURO_REF_ADMIN:                    { tier: 'config', why: 'Enables referral admin writes in /api/ouroboros/ref. Set only when a Safe signer runs the site locally; unset in production.' },
   NEXT_PUBLIC_LAUNCHES_PAUSED:       { tier: 'config', why: 'launchGate.ts: "1" closes /launch in the UI. The contract, not this flag, is what enforces who can launch.' },
   NEXT_PUBLIC_LOCALES:               { tier: 'config', why: 'locales.ts: which non-English dictionaries are served. Public, inlined at build time.' },
   NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: { tier: 'config', why: 'wallets.ts: WalletConnect Cloud project id. Public by design; it ships in every client bundle and is scoped by the allowed-origins list in the WalletConnect dashboard.' },
