@@ -12,8 +12,10 @@
  *        (fall back to APPLY_TELEGRAM_BOT_TOKEN / APPLY_TELEGRAM_CHAT_ID)
  *        HALT_KEEPER_PRIVATE_KEY — optional. A gas-only wallet that calls
  *        `renewAll()` on a gateway whose permanent halt was last armed over a
- *        day ago. `renewAll` is open to anyone, so the key holds no role;
- *        unset, the monitor only alerts as a halt nears its end.
+ *        day ago, and on v3.1 `pokeBuyback()` when the buyback is armed and
+ *        AutoLp `flush(hook)` for each pool it still owes. Every one of those
+ *        is open to anyone, so the key holds no role; unset, the monitor only
+ *        alerts, and v3.1 burns and liquidity wait for someone else to call.
  *
  *   401  no credential    403  wrong credential    503  not configured
  *   502  an alert could not be delivered
@@ -23,11 +25,14 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createWalletClient, http, type Address, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 
-import { HALT_GATEWAY_ABI, gatewaysToRenew, permanentHalts, runChecks, type Alert, type Reader } from '@/app/lib/monitor'
+import {
+  HALT_GATEWAY_ABI, V31_AUTOLP_ABI, V31_BUYBACK_ABI, gatewaysToRenew, permanentHalts, runChecks, v31Upkeep,
+  type Alert, type Reader,
+} from '@/app/lib/monitor'
 import { serverPublicClient, serverRpcUrl } from '@/app/lib/serverRpc'
 import { targetChain } from '@/lib/chain'
 import { indexStaleness } from '@/app/lib/v2Indexer'
-import { V2_BIDBOOK, V2_FACTORIES } from '@/lib/v2/config'
+import { V2_BIDBOOK, V2_FACTORIES, V31_ENABLED, V31_FACTORY } from '@/lib/v2/config'
 import { reportError } from '@/lib/observability'
 
 export const maxDuration = 60
@@ -80,13 +85,21 @@ async function handle(req: NextRequest): Promise<NextResponse> {
   const client = serverPublicClient()
   const read: Reader = (address, abi, functionName, args) =>
     client.readContract({ address, abi, functionName, args } as never) as never
+  const v31 = V31_ENABLED ? V31_FACTORY : undefined
   const factories = [...V2_FACTORIES]
 
   const renewed = await renewHalts(read, factories).catch((err: unknown) => {
     reportError(err, { surface: 'api-route', extra: { route: '/api/monitor', step: 'renewAll' } })
     return [] as string[]
   })
-  const alerts = await runChecks(read, { factories, bidBook: V2_BIDBOOK }, indexStaleness)
+  const kept = v31
+    ? await keepV31(read, v31).catch((err: unknown) => {
+      reportError(err, { surface: 'api-route', extra: { route: '/api/monitor', step: 'v31-upkeep' } })
+      return [] as string[]
+    })
+    : []
+  const v3Factories = factories.filter(f => f.toLowerCase() !== v31?.toLowerCase())
+  const alerts = await runChecks(read, { factories: v3Factories, bidBook: V2_BIDBOOK, v31Factory: v31 }, indexStaleness)
 
   const sent: string[] = []
   try {
@@ -97,27 +110,56 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     }
   } catch (err) {
     reportError(err, { surface: 'api-route', extra: { route: '/api/monitor', sent: sent.length } })
-    return NextResponse.json({ error: 'delivery failed', alerts: alerts.map(a => a.id), sent, renewed }, { status: 502 })
+    return NextResponse.json({ error: 'delivery failed', alerts: alerts.map(a => a.id), sent, renewed, kept }, { status: 502 })
   }
-  return NextResponse.json({ ok: true, alerts: alerts.map(a => a.id), sent, renewed })
+  return NextResponse.json({ ok: true, alerts: alerts.map(a => a.id), sent, renewed, kept })
 }
 
-/** Send `renewAll()` to each gateway that is due; returns the transaction hashes. */
-async function renewHalts(read: Reader, factories: Address[]): Promise<string[]> {
+function keeperWallet() {
   const key = process.env.HALT_KEEPER_PRIVATE_KEY?.trim()
-  if (!key) return []
-  const due = gatewaysToRenew(await permanentHalts(read, factories), BigInt(Math.floor(Date.now() / 1000)))
-  if (due.length === 0) return []
-
-  const wallet = createWalletClient({
+  if (!key) return null
+  return createWalletClient({
     account: privateKeyToAccount((key.startsWith('0x') ? key : `0x${key}`) as Hex),
     chain: targetChain,
     transport: http(serverRpcUrl(), { timeout: 10_000 }),
   })
+}
+
+/** Send `renewAll()` to each gateway that is due; returns the transaction hashes. */
+async function renewHalts(read: Reader, factories: Address[]): Promise<string[]> {
+  const wallet = keeperWallet()
+  if (!wallet) return []
+  const due = gatewaysToRenew(await permanentHalts(read, factories), BigInt(Math.floor(Date.now() / 1000)))
+  if (due.length === 0) return []
+
   const hashes: string[] = []
   for (const gateway of due) {
     hashes.push(await wallet.writeContract({ address: gateway, abi: HALT_GATEWAY_ABI, functionName: 'renewAll' }))
   }
+  return hashes
+}
+
+/**
+ * Poke the v3.1 buyback and flush AutoLp backlogs. Each call is simulated
+ * first and only sent if it would succeed, so a flush AutoLp would refuse
+ * this block costs nothing; it is retried on the next run.
+ */
+async function keepV31(read: Reader, factory: Address): Promise<string[]> {
+  const wallet = keeperWallet()
+  if (!wallet) return []
+  const plan = await v31Upkeep(read, factory)
+  const client = serverPublicClient()
+  const hashes: string[] = []
+  const attempt = async (address: Address, abi: readonly unknown[], functionName: string, args?: readonly unknown[]) => {
+    try {
+      const { request } = await client.simulateContract({ account: wallet.account, address, abi, functionName, args } as never)
+      hashes.push(await wallet.writeContract(request as never))
+    } catch {
+      // Not ready this block.
+    }
+  }
+  if (plan.buyback) await attempt(plan.buyback, V31_BUYBACK_ABI, 'pokeBuyback')
+  for (const hook of plan.flush) await attempt(plan.autoLp, V31_AUTOLP_ABI, 'flush', [hook])
   return hashes
 }
 

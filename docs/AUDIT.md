@@ -313,12 +313,12 @@ pair, the Chainlink BNB/USD feed and the ERC-8004 registry.
 
 24 detectors, 455 instances, all triaged, nothing unresolved.
 
-`src/v31/` adds six source units (27 in all) and 90 instances. 84 are at the
+`src/v31/` adds six source units (27 in all) and 94 instances. 85 are at the
 v3.1 copy of a v3 site below, with the same disposition, or are the
 file-level pragma and `PUSH0` notes on the new files. The v3.1 hook's private
-interfaces carry a V31 suffix so they do not reuse the v3 names. The other 6:
-`unsafe-casting` ×5 (the L2 curve and idle-burn slots and the factory's halt
-clock, below) and `missing-inheritance` on `ToshMintVesting`, which matches
+interfaces carry a V31 suffix so they do not reuse the v3 names. The other 9:
+`unsafe-casting` ×8 (the L2 curve and idle-burn slots, the factory's halt
+clock and the buyback's rescue timelock, below) and `missing-inheritance` on `ToshMintVesting`, which matches
 the factory without importing it. The new `reentrancy-state-change` sites
 sit in `launch` and `mintL2`, which read the factory's
 `ladderHaltedSeconds()` and the pure `l2Quote()` before writing the curve,
@@ -334,13 +334,6 @@ file-level pragma and `PUSH0` notes; five literal notes (`1e18` scaling and
 the slot constant); `unchecked-return` on `vault.lock` and `vault.settle`;
 `missing-inheritance`; and `unused-state-variable` on `_PIGGYBACK_SLOT`, which
 like the treasury's is read only inside `assembly`.
-
-Four more are v3.1 sites that changed in #101 without a re-run, recorded
-here: a sixth view read in the buyback's constructor (the pool manager's
-`vault()`, checked against the configured Vault), the buyback's
-`requestRescue` stamp (now plus the 72-hour `RESCUE_DELAY`, as a `uint64`),
-and two more casts in `ToshFactoryV31.haltLadderMinting` (the halt clock,
-below).
 
 `src/ouroboros/` adds four source units (32 in all) and 60 instances: the
 file-level pragma and `PUSH0` notes ×4 each; `large-numeric-literal` ×17 and
@@ -425,7 +418,8 @@ Ouroboros are the mint constructor, which reads the pair's `token0()` before
 deploying its bid book, and `mintL2`, whose calls to the token's
 `swapTaxes`, `burnFromPair` and the pair's `sync` sit under `nonReentrant` on
 callees fixed at construction. Of the 23 in `src/v31/`, 7 are
-`ToshBuybackV31`'s (above) and 16 are the v3.1 copies
+`ToshBuybackV31`'s (above; its constructor's view reads of the vault, the
+manager and the TOSH pool key run before anyone can call in) and 16 are the v3.1 copies
 of the hook's `launch`, `buyGenesis` and constructor sites and the factory's
 `createLaunch`, constructor and `releaseAbandonedName`, one more in `launch`
 and one in `mintL2` (the halt-clock read and the factory's pure `l2Quote`,
@@ -471,11 +465,13 @@ is a `uint32` timestamp, good to 2106. `haltedAt` is a `uint128` count of
 seconds, and `periods` a `uint32` count of 10-minute periods since the last
 mint, which would take 81 000 years to overflow.
 
-Three are `ToshFactoryV31.haltLadderMinting`, which stores the halt clock as
-`uint64` timestamps and a `uint128` running total: `until` is now plus at most
-`MAX_HALT_DURATION`, and the total can grow by at most the seconds that have
-passed since deployment. `ToshBuybackV31.requestRescue` stores now plus 72
-hours as a `uint64`.
+Three are in `ToshFactoryV31.haltLadderMinting`, which stores the per-hook
+and global halt clocks as `uint64` timestamps and a `uint128` running total:
+`until` is now plus at most `MAX_HALT_DURATION`, and the total can grow by at
+most the seconds that have passed since deployment.
+
+`ToshBuybackV31.requestRescue` stores `readyAt` as a `uint64`: it is
+`block.timestamp + RESCUE_DELAY` (72 hours), a timestamp.
 
 The last is `OuroborosMint._lock`, which packs a vesting entry as a `uint128`
 amount and a `uint64` unlock time. The amount was minted in the same call, so
