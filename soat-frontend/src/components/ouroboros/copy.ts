@@ -5,7 +5,7 @@ import { NATIVE_SYMBOL } from '@/lib/chain'
 
 const ZH = {
   title: '衔尾蛇 Ouroboros',
-  tagline: '持 Agent ID 公平铸造 · 总量 210 亿 · LP 永久锁定',
+  tagline: '持 Agent ID 公平铸造 · 每个 Agent ID 最多 30 份 · 总量 210 亿 · LP 永久锁定',
   notDeployed: '合约尚未部署，页面将在地址公布后开放。',
   bannerKicker: '主推活动',
   bannerCta: '进入衔尾蛇',
@@ -28,10 +28,10 @@ const ZH = {
   statBurned: 'L2 累计销毁',
   statSupply: '流通总量',
   timeline: '阶段',
-  tlL1: 'L1 播种 · 2 小时 · 每份 0.9 USDT · 不限总量',
+  tlL1: 'L1 播种 · 2 小时 · 每份 0.9 USDT · 每个 Agent ID 最多 30 份（与 L2 合计） · 总份数不设上限',
   tlLaunch: '开盘 · L1 代币 116.67 亿枚开放领取 · 买单簿开启',
   tlL15: 'L1.5 换手 · 仅买单 · 买卖各 2% 进金库 · 尚未建池',
-  tlL2: 'L2 扩容 · 80% L1 USDT 按开盘价建池（不低于 L1 价格，最多 93.33 亿枚） · 阶梯价 · 2100 万份 · 池子开放交易',
+  tlL2: 'L2 扩容 · 80% L1 USDT 按开盘价建池（不低于 L1 价格，最多 93.33 亿枚） · 阶梯价 · 2100 万份 · 与 L1 共用每个 Agent ID 30 份额度 · 池子开放交易',
   launchNow: '开盘（任何人可调用）',
   seedTitle: '建池',
   seedNote: 'L2 已开启。建池后池子立即开放交易，L2 铸造随之开放。仅多签签名人可操作。',
@@ -125,7 +125,7 @@ type Copy = typeof ZH
 
 const EN: Copy = {
   title: 'Ouroboros',
-  tagline: 'Agent ID fair mint · 21B supply · LP locked forever',
+  tagline: 'Agent ID fair mint · up to 30 shares per Agent ID · 21B supply · LP locked forever',
   notDeployed: 'Contracts are not deployed yet. This page opens once the addresses are published.',
   bannerKicker: 'Featured',
   bannerCta: 'Enter Ouroboros',
@@ -148,10 +148,10 @@ const EN: Copy = {
   statBurned: 'Burned by L2',
   statSupply: 'Total supply',
   timeline: 'Phases',
-  tlL1: 'L1 Seeding · 2 hours · 0.9 USDT a share · no cap',
+  tlL1: 'L1 Seeding · 2 hours · 0.9 USDT a share · at most 30 shares per Agent ID (L1 and L2 combined) · no cap on total shares',
   tlLaunch: 'Launch · 11.67B L1 tokens claimable · bid book opens',
   tlL15: 'L1.5 Exchange · bids only · 2% each side to treasury · no pool yet',
-  tlL2: 'L2 Expansion · 80% of L1 USDT seeds the pool at the opening price (never below the L1 price, at most 9.33B tokens) · ladder price · 21M shares · pool open',
+  tlL2: 'L2 Expansion · 80% of L1 USDT seeds the pool at the opening price (never below the L1 price, at most 9.33B tokens) · ladder price · 21M shares · shares the 30-per-Agent-ID quota with L1 · pool open',
   launchNow: 'Launch (anyone can call)',
   seedTitle: 'Seed the pool',
   seedNote: 'L2 is open. The pool trades as soon as it is seeded, and L2 minting opens with it. Multisig signers only.',
