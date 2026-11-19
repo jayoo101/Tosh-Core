@@ -20,6 +20,8 @@ import { L2_MAX_PAY_BPS } from './MintPanel'
 import { useOuroRef } from './useOuroRef'
 
 const BNB_BUFFER_BPS = 50n
+/** Prepared before the open, the quote has hours to move; the contract refunds what it does not spend. */
+const BNB_EARLY_BUFFER_BPS = 500n
 const L2_SLIPPAGE_BPS = 100n
 
 /**
@@ -38,10 +40,10 @@ export function AgentPanel({ state, onDone }: { state: OuroState; onDone: () => 
   const done = () => { void refetch(); onDone() }
 
   const isL2 = state.phase === 'L2'
-  // Before L1 the L1 mint can be prepared, not sent; a BNB quote would be stale by the open.
+  // Before L1 the L1 mint can be prepared, not sent.
   const early = state.phase === 'Pending'
   const minting = state.phase === 'L1' || isL2 || early
-  const pay = payBnb && !early
+  const pay = payBnb
   const opensAt = `${new Date(state.l1Start * 1000).toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).slice(0, 16)} (UTC+8)`
   const soldLeft = Number(L2_TOTAL_SHARES - state.l2Minted)
   const poolCap = isL2 ? l2PoolCap(state) : MAX_SHARES
@@ -60,7 +62,8 @@ export function AgentPanel({ state, onDone }: { state: OuroState; onDone: () => 
     address: OURO_MINT, abi: OURO_MINT_ABI, functionName: 'quoteBnb', args: [maxPay], chainId: TARGET_CHAIN_ID,
     query: { enabled: pay && cost > 0n, refetchInterval: 6_000 },
   })
-  const bnbValue = bnbQuote === undefined ? undefined : bnbQuote + (bnbQuote * BNB_BUFFER_BPS) / 10_000n
+  const buffer = early ? BNB_EARLY_BUFFER_BPS : BNB_BUFFER_BPS
+  const bnbValue = bnbQuote === undefined ? undefined : bnbQuote + (bnbQuote * buffer) / 10_000n
 
   const mintSteps = ((): AgentStep[] | null => {
     if (!OURO_MINT || !OURO_USDT || !agent || max === 0 || cost === 0n) return null
@@ -92,7 +95,7 @@ export function AgentPanel({ state, onDone }: { state: OuroState; onDone: () => 
   return (
     <Panel title={c.agentTitle}>
       <p className="text-note text-text-tertiary">{c.agentIntro}</p>
-      <AgentAddressField label={c.agentAddress} />
+      <AgentAddressField label={c.agentAddress} hint={c.agentAddressHint} invalidHint={c.agentAddressBad} />
       {agent && (
         <dl className="flex flex-col gap-2 text-note">
           <Row k={c.remaining} v={`${user.remaining} / ${MAX_SHARES}`} />
@@ -114,26 +117,24 @@ export function AgentPanel({ state, onDone }: { state: OuroState; onDone: () => 
                 className="w-28 rounded-input border border-border-subtle bg-bg-subtle px-3 py-2 font-mono text-text-primary"
               />
             </label>
-            {!early && (
-              <div className="flex overflow-hidden rounded-input border border-border-subtle">
-                {(['USDT', NATIVE_SYMBOL] as const).map((label, i) => (
-                  <button
-                    key={label} type="button" onClick={() => setPayBnb(i === 1)}
-                    className={cn('px-3 py-2 font-mono text-note',
-                      payBnb === (i === 1) ? 'bg-brand text-bg-base' : 'text-text-secondary hover:bg-surface-hover')}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            )}
+            <div className="flex overflow-hidden rounded-input border border-border-subtle">
+              {(['USDT', NATIVE_SYMBOL] as const).map((label, i) => (
+                <button
+                  key={label} type="button" onClick={() => setPayBnb(i === 1)}
+                  className={cn('px-3 py-2 font-mono text-note',
+                    payBnb === (i === 1) ? 'bg-brand text-bg-base' : 'text-text-secondary hover:bg-surface-hover')}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <span className="font-mono text-note text-text-secondary">
               {pay ? (bnbValue === undefined ? '…' : `${fmt(bnbValue, 6)} ${NATIVE_SYMBOL}`) : `${fmt(cost)} USDT`}
             </span>
           </div>
           <AgentModeSheet
             title={`${c.mint} ${n}`}
-            summary={early ? undefined : c.agentMintSummary}
+            summary={c.agentMintSummary}
             steps={mintSteps}
             pending={state.paused ? c.paused : isL2 && !state.poolSeeded ? c.awaitSeed : poolCap === 0 ? c.poolTooThin : max === 0 ? c.noAgent : undefined}
             notes={[
