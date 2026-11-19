@@ -50,7 +50,21 @@ function Live() {
 
   const phase = state.phase
   const minting = phase === 'L1' || phase === 'L2'
-  const price = poolPrice(state.reserveUsdt, state.reserveToken)
+  const inL15 = phase === 'L1_5'
+  const pool = poolPrice(state.reserveUsdt, state.reserveToken)
+  const { data: terms } = useReadContract({
+    address: OURO_MINT,
+    abi: OURO_MINT_ABI,
+    functionName: 'seedTerms',
+    chainId: TARGET_CHAIN_ID,
+    query: { enabled: state.launched && !state.poolSeeded, refetchInterval: 30_000 },
+  })
+  const l1Price = terms?.[0]
+  // During L1.5 the pool is empty; show the L1 average until the pool is seeded.
+  const priceLabel = state.poolSeeded ? c.statPrice : c.statL1Price
+  const priceValue = state.poolSeeded ? pool
+    : l1Price !== undefined ? l1Price
+      : 0n
 
   return (
     <div className="flex flex-col gap-6">
@@ -59,10 +73,14 @@ function Live() {
       <StatGrid>
         <Stat label={c.statL1Shares} value={state.totalL1Shares.toLocaleString()} />
         <Stat label={c.statL2Minted} value={state.l2Minted.toLocaleString()} sub="/ 21,000,000" />
-        <Stat label={c.statPrice} value={state.launched ? fmtPrice(price) : '—'} highlight />
+        <Stat label={priceLabel} value={state.launched ? fmtPrice(priceValue) : '—'} highlight />
         <Stat label={c.statBurned} value={fmtCompact(state.totalBurned)} />
         <Stat label={c.statSupply} value={fmtCompact(state.supply)} sub="/ 21B" />
       </StatGrid>
+
+      {inL15 && (
+        <BidBookPanel open user={user} address={address} onDone={refresh} />
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:items-start">
         <div className="flex min-w-0 flex-col gap-6">
@@ -78,9 +96,10 @@ function Live() {
         </aside>
       </div>
 
-      {state.launched ? (
-        <BidBookPanel open={phase === 'L1_5'} user={user} address={address} onDone={refresh} />
-      ) : phase && phase !== 'Failed' && (
+      {state.launched && !inL15 && (
+        <BidBookPanel open={false} user={user} address={address} onDone={refresh} />
+      )}
+      {!state.launched && phase && phase !== 'Failed' && (
         <Panel title={c.bookTitle}>
           <p className="text-note text-text-secondary">{c.bookSoon}</p>
         </Panel>
