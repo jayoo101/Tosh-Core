@@ -49,9 +49,10 @@ function depthLevels(bids: Bid[]): Level[] {
   }
   const levels = [...map.values()]
   for (const l of levels) l.tokens = l.price === 0n ? 0n : (l.usdtLeft * ONE) / l.price
-  // Dust left that rounds to 0 OURO is not tradeable and would show as 0 / 0.
+  // Skip levels that would show as 0 USDT or 0 OURO on the depth table.
+  const minUsdt = 10n ** 16n // 0.01 USDT
   return levels
-    .filter(l => l.tokens > 0n)
+    .filter(l => l.tokens > 0n && l.usdtLeft >= minUsdt)
     .sort((a, b) => (b.price > a.price ? 1 : b.price < a.price ? -1 : 0))
 }
 
