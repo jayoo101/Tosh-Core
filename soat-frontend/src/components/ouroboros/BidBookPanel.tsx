@@ -70,9 +70,9 @@ function useOpenBids() {
     queryKey: ['ouro-bids'],
     queryFn: async () => {
       const r = await fetch('/api/ouroboros/bids')
-      if (!r.ok) return [] as string[]
-      const body = (await r.json()) as { bids: { bid_id: string }[] }
-      return body.bids.map(b => b.bid_id)
+      if (!r.ok) return { ids: [] as string[], highFill: null as string | null }
+      const body = (await r.json()) as { bids: { bid_id: string }[]; highFill?: string | null }
+      return { ids: body.bids.map(b => b.bid_id), highFill: body.highFill ?? null }
     },
     refetchInterval: 15_000,
   })
@@ -85,7 +85,7 @@ function useOpenBids() {
   })
 
   const ids = useMemo(() => {
-    const set = new Set<bigint>((indexed ?? []).map(s => BigInt(s)))
+    const set = new Set<bigint>((indexed?.ids ?? []).map(s => BigInt(s)))
     if (next !== undefined) {
       for (let i = next - 1n; i >= 1n && i >= next - BigInt(CHAIN_SCAN); i--) set.add(i)
     }
@@ -111,7 +111,8 @@ function useOpenBids() {
     if (usdtLeft > 0n) bids.push({ id: ids[i], buyer, price, usdtLeft })
   })
   bids.sort((a, b) => (b.price > a.price ? 1 : b.price < a.price ? -1 : Number(a.id - b.id)))
-  return { bids, refetch }
+  const highFill = indexed?.highFill ? BigInt(indexed.highFill) : undefined
+  return { bids, highFill, refetch }
 }
 
 export function BidBookPanel({ open, user, address, onDone }: {
@@ -121,7 +122,7 @@ export function BidBookPanel({ open, user, address, onDone }: {
   onDone: () => void
 }) {
   const c = useOuroCopy()
-  const { bids, refetch } = useOpenBids()
+  const { bids, highFill, refetch } = useOpenBids()
   const done = () => { void refetch(); onDone() }
   const mine = address?.toLowerCase()
   const myBids = bids.filter(b => mine && b.buyer.toLowerCase() === mine)
@@ -160,7 +161,7 @@ export function BidBookPanel({ open, user, address, onDone }: {
 
   const stats: [string, string][] = [
     [c.bookBest, best !== undefined ? fmtPrice(best) : '—'],
-    [c.bookFloor, l1Floor !== undefined ? fmtPrice(l1Floor) : '—'],
+    [c.bookHighFill, highFill !== undefined ? fmtPrice(highFill) : '—'],
     [c.bookDepth, `${fmt(depthUsdt, 2)} USDT`],
     [c.bookVolume, `${fmtCompact(filledUsdt)} USDT`],
     [c.bookCount, levels.length.toLocaleString()],
