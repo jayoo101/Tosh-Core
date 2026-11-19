@@ -49,8 +49,10 @@ function depthLevels(bids: Bid[]): Level[] {
   }
   const levels = [...map.values()]
   for (const l of levels) l.tokens = l.price === 0n ? 0n : (l.usdtLeft * ONE) / l.price
-  levels.sort((a, b) => (b.price > a.price ? 1 : b.price < a.price ? -1 : 0))
+  // Dust left that rounds to 0 OURO is not tradeable and would show as 0 / 0.
   return levels
+    .filter(l => l.tokens > 0n)
+    .sort((a, b) => (b.price > a.price ? 1 : b.price < a.price ? -1 : 0))
 }
 
 /** Oldest non-mine bid at the best price that still has room for `amount`. */
@@ -104,6 +106,7 @@ function useOpenBids() {
   data?.forEach((r, i) => {
     if (r.status !== 'success') return
     const [buyer, price, usdtLeft] = r.result as readonly [Address, bigint, bigint]
+    // Keep dust for "My bids" (so it can still be cancelled); depth hides it.
     if (usdtLeft > 0n) bids.push({ id: ids[i], buyer, price, usdtLeft })
   })
   bids.sort((a, b) => (b.price > a.price ? 1 : b.price < a.price ? -1 : Number(a.id - b.id)))
@@ -139,8 +142,9 @@ export function BidBookPanel({ open, user, address, onDone }: {
   })
   const l1Floor = terms?.[0]
   const filledUsdt = volume?.[0]?.status === 'success' ? (volume[0].result as bigint) : 0n
-  const depthUsdt = bids.reduce((s, b) => s + b.usdtLeft, 0n)
+  const depthUsdt = levels.reduce((s, l) => s + l.usdtLeft, 0n)
   const best = levels[0]?.price
+  const openOrders = levels.reduce((s, l) => s + l.count, 0)
 
   if (!open && myBids.length === 0) return null
 
@@ -159,7 +163,7 @@ export function BidBookPanel({ open, user, address, onDone }: {
     [c.bookDepth, `${fmt(depthUsdt, 2)} USDT`],
     [c.bookVolume, `${fmtCompact(filledUsdt)} USDT`],
     [c.bookCount, levels.length.toLocaleString()],
-    [c.bookOrders, bids.length.toLocaleString()],
+    [c.bookOrders, openOrders.toLocaleString()],
   ]
 
   return (
