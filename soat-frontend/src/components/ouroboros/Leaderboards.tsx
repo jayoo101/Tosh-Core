@@ -11,6 +11,9 @@ import { fmt, shortAddr } from './fmt'
 
 type Board = 'l1' | 'l15' | 'l2'
 
+/** Rows shown per board. */
+const BOARD_SHOWN = 20
+
 interface LbRow {
   account: string
   shares?: number
@@ -57,7 +60,6 @@ export function Leaderboards({ address }: { address: string | undefined }) {
           <table className="w-full border-collapse text-note">
             <thead>
               <tr className="bg-bg-subtle text-left text-text-tertiary">
-                <th className="px-3 py-2">{c.rank}</th>
                 <th className="px-3 py-2">{c.account}</th>
                 <th className="px-3 py-2 text-right">{board === 'l15' ? c.fills : c.shares}</th>
                 <th className="px-3 py-2 text-right">{c.volume}</th>
@@ -65,11 +67,10 @@ export function Leaderboards({ address }: { address: string | undefined }) {
             </thead>
             <tbody>
               {!isLoading && (data ?? []).length === 0 && (
-                <tr><td colSpan={4} className="px-3 py-4 text-center text-text-tertiary">{c.nothing}</td></tr>
+                <tr><td colSpan={3} className="px-3 py-4 text-center text-text-tertiary">{c.nothing}</td></tr>
               )}
-              {(data ?? []).map((r, i) => (
+              {(data ?? []).slice(0, BOARD_SHOWN).map(r => (
                 <tr key={r.account} className={cn('border-t border-border-subtle', r.account === me && 'bg-brand/5')}>
-                  <td className="px-3 py-2 font-mono">{i + 1}</td>
                   <td className="px-3 py-2 font-mono">{shortAddr(r.account)}</td>
                   <td className="px-3 py-2 text-right font-mono">{board === 'l15' ? r.fills : r.shares}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmt(BigInt(r.volume.split('.')[0]), 2)}</td>
