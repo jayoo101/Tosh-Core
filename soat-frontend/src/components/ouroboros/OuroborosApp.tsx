@@ -20,7 +20,7 @@ import { fmtCompact, fmtPrice, openingPrice, parseAmount, poolPrice } from './fm
 import { LadderTable } from './LadderTable'
 import { Leaderboards } from './Leaderboards'
 import { MintPanel } from './MintPanel'
-import { useOuroState, useOuroUser, type OuroState } from './useOuro'
+import { phaseCountdown, useOuroState, useOuroUser, type OuroState } from './useOuro'
 import { useOuroRef } from './useOuroRef'
 
 const ORDER: Phase[] = ['L1', 'AwaitLaunch', 'L1_5', 'L2']
@@ -88,11 +88,7 @@ function Hero({ state }: { state: OuroState }) {
   const c = useOuroCopy()
   const now = useNowSec()
   const p = state.phase
-  const countdown =
-    p === 'Pending' ? [c.startsIn, state.l1Start - now]
-    : p === 'L1' ? [c.endsIn, state.l1End - now]
-    : p === 'L1_5' ? [c.l2In, state.l2Start - now]
-    : null
+  const countdown = phaseCountdown(state, c, now)
 
   return (
     <header className="flex flex-col gap-3">

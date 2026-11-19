@@ -33,6 +33,19 @@ export interface OuroState {
   supply: bigint
 }
 
+/** The phase's next boundary as a label and the seconds left, or null when there is none to count to. */
+export function phaseCountdown(
+  state: OuroState,
+  c: { startsIn: string; endsIn: string; l2In: string },
+  now: number,
+): [string, number] | null {
+  const p = state.phase
+  return p === 'Pending' ? [c.startsIn, state.l1Start - now]
+    : p === 'L1' ? [c.endsIn, state.l1End - now]
+    : p === 'L1_5' ? [c.l2In, state.l2Start - now]
+    : null
+}
+
 /**
  * Most L2 shares one mint may take under the contract's 10 % pool cap, with
  * 2.5 % headroom: the mint sells held buy tax first, which lowers the reserve

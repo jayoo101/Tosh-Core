@@ -1,6 +1,7 @@
 'use client'
 
 import { useDirectoryProjects } from '@/components/directory/useDirectoryProjects'
+import { OuroborosBanner } from '@/components/ouroboros/OuroborosBanner'
 import { useV2Summaries } from '../useV2Summaries'
 import { BrowseSection } from './BrowseSection'
 import { Features } from './Features'
@@ -11,6 +12,7 @@ export default function XHome() {
   const summaries = useV2Summaries(projects)
   return (
     <main className="mx-auto flex w-full max-w-[1600px] flex-col gap-12 px-4 py-6 md:px-8 md:py-8">
+      <OuroborosBanner />
       <Hero projects={projects} counts={counts} />
       <BrowseSection projects={projects} summaries={summaries} loading={loading} />
       <Features />

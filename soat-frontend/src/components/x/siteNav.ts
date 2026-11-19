@@ -1,4 +1,4 @@
-import { ArrowLeftRight, BadgeCheck, FilePlus, FileText, Infinity as InfinityIcon, Rocket, Store, type LucideIcon } from 'lucide-react'
+import { FilePlus, FileText, Infinity as InfinityIcon, Store, type LucideIcon } from 'lucide-react'
 
 import type { Dictionary } from '@/i18n'
 
@@ -10,14 +10,15 @@ export interface NavItem {
   exact: boolean
 }
 
-/** One list for the side rail (desktop) and the header links (below `lg`). */
+/**
+ * One list for the side rail (desktop) and the header links (below `lg`).
+ * `/launchpad`, `/launched` and `/market` still serve; they are off the nav
+ * while Ouroboros is the lead.
+ */
 export function siteNav(t: Dictionary): NavItem[] {
   return [
-    { href: '/',          label: t.x.navHome,      icon: Store,          exact: true },
-    { href: '/launchpad', label: t.x.navLaunching, icon: Rocket,         exact: false },
-    { href: '/launched',  label: t.x.navLaunched,  icon: BadgeCheck,     exact: false },
-    { href: '/market',    label: t.x.navMarket,    icon: ArrowLeftRight, exact: false },
     { href: '/ouroboros', label: t.x.navOuroboros, icon: InfinityIcon,   exact: false },
+    { href: '/',          label: t.x.navHome,      icon: Store,          exact: true },
     { href: '/whitepaper', label: t.x.navWhitepaper, icon: FileText,     exact: false },
     { href: '/apply',     label: t.site.navApply,  icon: FilePlus,       exact: false },
   ]
