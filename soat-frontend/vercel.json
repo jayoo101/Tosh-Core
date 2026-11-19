@@ -6,19 +6,19 @@
   "crons": [
     {
       "path": "/api/v2/index",
-      "schedule": "* * * * *"
+      "schedule": "0 0 * * *"
     },
     {
       "path": "/api/ouroboros/index",
-      "schedule": "* * * * *"
+      "schedule": "10 0 * * *"
     },
     {
       "path": "/api/ouroboros/ref/autopay",
-      "schedule": "0 * * * *"
+      "schedule": "20 0 * * *"
     },
     {
       "path": "/api/monitor",
-      "schedule": "*/5 * * * *"
+      "schedule": "30 0 * * *"
     }
   ]
 }
