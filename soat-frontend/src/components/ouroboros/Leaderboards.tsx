@@ -9,7 +9,7 @@ import { cn } from '@/components/ui'
 import { useOuroCopy } from './copy'
 import { fmt, shortAddr } from './fmt'
 
-type Board = 'l1' | 'l15' | 'l2'
+type Board = 'l1' | 'l2'
 
 /** Rows shown per board. */
 const BOARD_SHOWN = 20
@@ -17,7 +17,6 @@ const BOARD_SHOWN = 20
 interface LbRow {
   account: string
   shares?: number
-  fills?: number
   volume: string
 }
 
@@ -33,7 +32,8 @@ export function Leaderboards({ address }: { address: string | undefined }) {
     },
     refetchInterval: 30_000,
   })
-  const tabs: [Board, string][] = [['l1', c.boardL1], ['l15', c.boardL15], ['l2', c.boardL2]]
+  // L1.5 换手榜 intentionally hidden from the UI.
+  const tabs: [Board, string][] = [['l1', c.boardL1], ['l2', c.boardL2]]
   const me = address?.toLowerCase()
 
   return (
@@ -61,7 +61,7 @@ export function Leaderboards({ address }: { address: string | undefined }) {
             <thead>
               <tr className="bg-bg-subtle text-left text-text-tertiary">
                 <th className="px-3 py-2">{c.account}</th>
-                <th className="px-3 py-2 text-right">{board === 'l15' ? c.fills : c.shares}</th>
+                <th className="px-3 py-2 text-right">{c.shares}</th>
                 <th className="px-3 py-2 text-right">{c.volume}</th>
               </tr>
             </thead>
@@ -72,7 +72,7 @@ export function Leaderboards({ address }: { address: string | undefined }) {
               {(data ?? []).slice(0, BOARD_SHOWN).map(r => (
                 <tr key={r.account} className={cn('border-t border-border-subtle', r.account === me && 'bg-brand/5')}>
                   <td className="px-3 py-2 font-mono">{shortAddr(r.account)}</td>
-                  <td className="px-3 py-2 text-right font-mono">{board === 'l15' ? r.fills : r.shares}</td>
+                  <td className="px-3 py-2 text-right font-mono">{r.shares}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmt(BigInt(r.volume.split('.')[0]), 2)}</td>
                 </tr>
               ))}
