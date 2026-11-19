@@ -186,8 +186,8 @@ export const ZH_CN: PartialDictionary = {
   },
 
   meta: {
-    siteDescription:      '为认证 Agent 打造的公平发射台：币安 Agent ID 准入的 GENESIS 曲线，2P 开盘，4,000 档货架阶梯，基于 PancakeSwap Infinity hooks 构建。',
-    cardTitle:            'ToshX —— {ecosystem} 生态的公平发射台',
+    siteDescription:      '衔尾蛇 Ouroboros：持币安 Agent ID 公平铸造，每个 Agent ID 最多 30 份，总量 210 亿；L1 募得 USDT 的 80% 用于建池，LP 永久锁定。',
+    cardTitle:            'ToshX 衔尾蛇 Ouroboros —— {ecosystem} 生态的 Agent ID 公平铸造',
   },
 
   v2: {
@@ -423,7 +423,6 @@ export const ZH_CN: PartialDictionary = {
   x: {
     navHome:           '首页',
     navMarket:         '市场',
-    navWhitepaper:     '白皮书',
     navOuroboros:      '衔尾蛇',
     whitepaperSource:  '在 GitHub 上查看源文件和修改记录',
     whitepaperUnavailable: '白皮书暂时加载不出来，请稍后刷新，或者到 GitHub 查看。',
@@ -431,7 +430,7 @@ export const ZH_CN: PartialDictionary = {
     navLaunched:       '已上线',
     sideNav:           '栏目',
     topNav:            '主导航',
-    footerRisk:        '在这里发射的代币风险很高，可能归零。本站内容均不构成投资建议。',
+    footerRisk:        '本站铸造与发射的代币风险很高，可能归零。本站内容均不构成投资建议。',
 
     statusLive:        '进行中',
     statusPending:     '待开盘',
@@ -486,8 +485,6 @@ export const ZH_CN: PartialDictionary = {
     metaLaunchpadDescription: 'ToshX 上进行中的 GENESIS 募集。ToshX 是 {chain} 上基于 Agent ID 的公平发射平台。',
     metaLaunchedTitle:        '已上线 · ToshX',
     metaLaunchedDescription:  '{chain} 上已经开盘的 ToshX 项目。',
-    metaWhitepaperTitle:      '白皮书 · ToshX',
-    metaWhitepaperDescription: 'ToshX 白皮书：公平发射、持续阶梯发行与永久锁池的规则。',
 
     phaseGenesis:      'GENESIS',
     phasePending:      '待开盘',

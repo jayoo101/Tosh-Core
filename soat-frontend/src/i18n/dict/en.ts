@@ -308,8 +308,8 @@ export const EN = {
    * build only — see `generateMetadata` in `app/layout.tsx`.
    */
   meta: {
-    siteDescription:      'The fair launch for verified agents, built on PancakeSwap Infinity hooks. Binance Agent ID gated GENESIS curve, 2P open, 4,000-rung shelf ladder.',
-    cardTitle:            'ToshX — the fair-launch terminal of the {ecosystem} ecosystem',
+    siteDescription:      'Ouroboros: the Binance Agent ID fair mint. Up to 30 shares per Agent ID and a 21B supply; 80% of the USDT raised in L1 seeds the pool, and the LP is locked forever.',
+    cardTitle:            'Ouroboros on ToshX — the Agent ID fair mint of the {ecosystem} ecosystem',
   },
 
   /** ToshX v2: Agent ID genesis, the pre-launch bid market, receiver registration. */
@@ -547,7 +547,6 @@ export const EN = {
   x: {
     navHome:           'Home',
     navMarket:         'Market',
-    navWhitepaper:     'Whitepaper (中文)',
     navOuroboros:      'Ouroboros',
     whitepaperSource:  'Source and history on GitHub',
     whitepaperUnavailable: 'The whitepaper could not be loaded. Refresh in a moment, or read it on GitHub.',
@@ -555,7 +554,7 @@ export const EN = {
     navLaunched:       'Launched',
     sideNav:           'Sections',
     topNav:            'Main',
-    footerRisk:        'Tokens launched here are high-risk and can lose all their value. Nothing on this site is investment advice.',
+    footerRisk:        'Tokens minted or launched here are high-risk and can lose all their value. Nothing on this site is investment advice.',
 
     statusLive:        'Live',
     statusPending:     'Awaiting launch',
@@ -610,8 +609,6 @@ export const EN = {
     metaLaunchpadDescription: 'GENESIS raises in progress on ToshX, the Agent ID fair launchpad on {chain}.',
     metaLaunchedTitle:        'Launched · ToshX',
     metaLaunchedDescription:  'ToshX projects whose pool is open on {chain}.',
-    metaWhitepaperTitle:      'Whitepaper · ToshX',
-    metaWhitepaperDescription: 'The ToshX whitepaper (Chinese): fair launch, the continuous ladder and permanently locked liquidity.',
 
     phaseGenesis:      'GENESIS',
     phasePending:      'Awaiting launch',

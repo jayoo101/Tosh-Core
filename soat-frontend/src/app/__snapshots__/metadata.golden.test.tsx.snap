@@ -8,21 +8,21 @@ exports[`page metadata · english golden master > 404 1`] = `
 
 exports[`page metadata · english golden master > root layout 1`] = `
 {
-  "description": "The fair launch for verified agents, built on PancakeSwap Infinity hooks. Binance Agent ID gated GENESIS curve, 2P open, 4,000-rung shelf ladder. Raises are denominated in test tBNB or a mock USDT. Settlement on BNB Smart Chain — currently staging on the public testnet.",
+  "description": "Ouroboros: the Binance Agent ID fair mint. Up to 30 shares per Agent ID and a 21B supply; 80% of the USDT raised in L1 seeds the pool, and the LP is locked forever. Raises are denominated in test tBNB or a mock USDT. Settlement on BNB Smart Chain — currently staging on the public testnet.",
   "metadataBase": "https://toshx.xyz/",
   "openGraph": {
-    "description": "The fair launch for verified agents, built on PancakeSwap Infinity hooks. Binance Agent ID gated GENESIS curve, 2P open, 4,000-rung shelf ladder. Raises are denominated in test tBNB or a mock USDT. Settlement on BNB Smart Chain — currently staging on the public testnet.",
+    "description": "Ouroboros: the Binance Agent ID fair mint. Up to 30 shares per Agent ID and a 21B supply; 80% of the USDT raised in L1 seeds the pool, and the LP is locked forever. Raises are denominated in test tBNB or a mock USDT. Settlement on BNB Smart Chain — currently staging on the public testnet.",
     "locale": "en_US",
     "siteName": "ToshX",
-    "title": "ToshX — the fair-launch terminal of the tBNB ecosystem",
+    "title": "Ouroboros on ToshX — the Agent ID fair mint of the tBNB ecosystem",
     "type": "website",
     "url": "https://toshx.xyz/",
   },
   "title": "ToshX",
   "twitter": {
     "card": "summary_large_image",
-    "description": "The fair launch for verified agents, built on PancakeSwap Infinity hooks. Binance Agent ID gated GENESIS curve, 2P open, 4,000-rung shelf ladder. Raises are denominated in test tBNB or a mock USDT. Settlement on BNB Smart Chain — currently staging on the public testnet.",
-    "title": "ToshX — the fair-launch terminal of the tBNB ecosystem",
+    "description": "Ouroboros: the Binance Agent ID fair mint. Up to 30 shares per Agent ID and a 21B supply; 80% of the USDT raised in L1 seeds the pool, and the LP is locked forever. Raises are denominated in test tBNB or a mock USDT. Settlement on BNB Smart Chain — currently staging on the public testnet.",
+    "title": "Ouroboros on ToshX — the Agent ID fair mint of the tBNB ecosystem",
   },
 }
 `;

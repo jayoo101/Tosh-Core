@@ -2,7 +2,7 @@ import { ImageResponse } from 'next/og'
 
 import { CHAIN_STATUS_BADGE } from '@/lib/chain'
 import { NATIVE_SYMBOL } from '@/lib/chain'
-import { V2 } from '@/lib/v2/config'
+import { BODY, HEAD } from '@/components/ouroboros/OuroborosMark'
 
 /*
  * opengraph-image.tsx — the card a shared toshx.xyz link renders as
@@ -39,7 +39,7 @@ const VIOLET = '#FCD535'
 const TEXT = '#EAECEF'
 const MUTED = '#848E9C'
 
-export const alt = `ToshX — the fair-launch terminal of the ${NATIVE_SYMBOL} ecosystem`
+export const alt = `Ouroboros on ToshX — the Agent ID fair mint of the ${NATIVE_SYMBOL} ecosystem`
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 
@@ -58,6 +58,13 @@ const MARK_SVG =
     .join('') +
   `</svg>`
 const MARK = `data:image/svg+xml;base64,${Buffer.from(MARK_SVG).toString('base64')}`
+
+const OURO_SVG =
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">` +
+  BODY.map(({ d, opacity }) => `<path d="${d}" fill="${BRAND}" opacity="${opacity}"/>`).join('') +
+  `<path d="${HEAD}" fill="${BRAND}" fill-rule="evenodd"/>` +
+  `</svg>`
+const OURO = `data:image/svg+xml;base64,${Buffer.from(OURO_SVG).toString('base64')}`
 
 export default function Image() {
   return new ImageResponse(
@@ -89,6 +96,8 @@ export default function Image() {
             background: `radial-gradient(circle, ${BRAND}26 0%, ${BG}00 70%)`,
           }}
         />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={OURO} alt="" width={300} height={300} style={{ position: 'absolute', right: 90, top: 150 }} />
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -126,20 +135,20 @@ export default function Image() {
               color: TEXT,
             }}
           >
-            <span>Fair-launch terminal</span>
+            <span>Ouroboros</span>
             {/* `gap` carries the word space, because the literal one does not
                 survive. This row is a flex container, so `for <span>` puts the
                 space at the boundary between two flex items where it is
                 collapsed away — it rendered "foragent tokens." An explicit gap
                 is the only version that cannot be silently dropped. */}
             <div style={{ display: 'flex', gap: 20 }}>
-              <span>of the</span>
-              <span style={{ color: BRAND }}>{NATIVE_SYMBOL} ecosystem.</span>
+              <span>Agent ID</span>
+              <span style={{ color: BRAND }}>fair mint.</span>
             </div>
           </div>
 
           <div style={{ display: 'flex', fontSize: 26, color: MUTED }}>
-            {`Fair launch for verified agents · Binance Agent ID genesis · ${V2.TIER_COUNT.toLocaleString('en-US')}-rung ladder`}
+            21B supply · up to 30 shares per Agent ID · LP locked forever
           </div>
         </div>
 
