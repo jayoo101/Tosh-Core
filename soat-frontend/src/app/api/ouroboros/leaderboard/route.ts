@@ -1,4 +1,4 @@
-/** GET /api/ouroboros/leaderboard?board=l1|l15|l2 — top 100 by shares (L1, L2) or USDT turnover (L1.5). */
+/** GET /api/ouroboros/leaderboard?board=l1|l15|l2 — top 20 by shares (L1, L2) or USDT turnover (L1.5). */
 import { NextResponse, type NextRequest } from 'next/server'
 
 import { ouroReadGate } from '@/app/lib/ouroRead'
@@ -11,7 +11,7 @@ const BOARDS = {
   l15: { view: 'ouro_lb_l15', cols: 'account, fills, volume::text, first_block', order: 'volume' },
 } as const
 
-const LIMIT = 100
+const LIMIT = 20
 
 export async function GET(req: NextRequest) {
   const board = req.nextUrl.searchParams.get('board') ?? ''
