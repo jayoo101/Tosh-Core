@@ -18,9 +18,7 @@ import type { OuroUser } from './useOuro'
 
 const ONE = 10n ** 18n
 const FEE_BPS = 200n
-/** What a buyer receives of `tokens`: the book keeps 2 % of each side. */
 const afterFee = (tokens: bigint) => tokens - (tokens * FEE_BPS) / 10_000n
-/** Bids scanned straight from the contract, newest first, on top of what the index lists. */
 const CHAIN_SCAN = 200
 
 interface Bid {
@@ -30,46 +28,38 @@ interface Bid {
   usdtLeft: bigint
 }
 
-/** One price level: every open bid at that price, stacked for display. */
 interface Level {
   price: bigint
   usdtLeft: bigint
-  fillable: bigint
-  /** Non-mine bids, oldest first — a sell fills the head. */
-  others: Bid[]
-  /** The caller's bids at this price, oldest first — cancel takes the head. */
-  mine: Bid[]
+  tokens: bigint
+  count: number
 }
 
-function stackByPrice(bids: Bid[], mineAddr: string | undefined): Level[] {
-  const map = new Map<string, Bid[]>()
+function depthLevels(bids: Bid[]): Level[] {
+  const map = new Map<string, Level>()
   for (const b of bids) {
     const k = b.price.toString()
-    const list = map.get(k)
-    if (list) list.push(b)
-    else map.set(k, [b])
-  }
-  const levels: Level[] = []
-  for (const group of map.values()) {
-    group.sort((a, b) => Number(a.id - b.id))
-    const usdtLeft = group.reduce((s, b) => s + b.usdtLeft, 0n)
-    const price = group[0].price
-    const mine: Bid[] = []
-    const others: Bid[] = []
-    for (const b of group) {
-      if (mineAddr && b.buyer.toLowerCase() === mineAddr) mine.push(b)
-      else others.push(b)
+    const cur = map.get(k)
+    if (cur) {
+      cur.usdtLeft += b.usdtLeft
+      cur.count += 1
+    } else {
+      map.set(k, { price: b.price, usdtLeft: b.usdtLeft, tokens: 0n, count: 1 })
     }
-    levels.push({
-      price,
-      usdtLeft,
-      fillable: price === 0n ? 0n : (usdtLeft * ONE) / price,
-      others,
-      mine,
-    })
   }
+  const levels = [...map.values()]
+  for (const l of levels) l.tokens = l.price === 0n ? 0n : (l.usdtLeft * ONE) / l.price
   levels.sort((a, b) => (b.price > a.price ? 1 : b.price < a.price ? -1 : 0))
   return levels
+}
+
+/** Oldest non-mine bid at the best price that still has room for `amount`. */
+function bestFillTarget(bids: Bid[], amount: bigint, mine: string | undefined): Bid | undefined {
+  if (amount === 0n) return undefined
+  const open = bids
+    .filter(b => !mine || b.buyer.toLowerCase() !== mine)
+    .sort((a, b) => (a.price === b.price ? Number(a.id - b.id) : a.price > b.price ? -1 : 1))
+  return open.find(b => (b.usdtLeft * ONE) / b.price > 0n)
 }
 
 function useOpenBids() {
@@ -127,9 +117,11 @@ export function BidBookPanel({ open, user, address, onDone }: {
   onDone: () => void
 }) {
   const c = useOuroCopy()
-  const picker = useWalletPicker()
   const { bids, refetch } = useOpenBids()
   const done = () => { void refetch(); onDone() }
+  const mine = address?.toLowerCase()
+  const myBids = bids.filter(b => mine && b.buyer.toLowerCase() === mine)
+  const levels = useMemo(() => depthLevels(bids), [bids])
 
   const { data: terms } = useReadContract({
     address: OURO_MINT,
@@ -138,191 +130,300 @@ export function BidBookPanel({ open, user, address, onDone }: {
     chainId: TARGET_CHAIN_ID,
     query: { enabled: open, refetchInterval: 30_000 },
   })
+  const { data: volume } = useReadContracts({
+    contracts: [
+      { address: OURO_BIDBOOK!, abi: OURO_BIDBOOK_ABI, functionName: 'filledUsdt', chainId: TARGET_CHAIN_ID },
+      { address: OURO_BIDBOOK!, abi: OURO_BIDBOOK_ABI, functionName: 'filledTokens', chainId: TARGET_CHAIN_ID },
+    ],
+    query: { enabled: open && !!OURO_BIDBOOK, refetchInterval: 15_000 },
+  })
   const l1Floor = terms?.[0]
-
-  const [usdtIn, setUsdtIn] = useState('')
-  const [priceIn, setPriceIn] = useState('')
-  const bidUsdt = parseAmount(usdtIn) ?? 0n
-  const bidPrice = parseAmount(priceIn) ?? 0n
-  const bidApproval = useQuoteApproval(OURO_BIDBOOK, bidUsdt, OURO_USDT!)
-  const place = useTxAction({ action: 'bid', onConfirmed: () => { bidApproval.refetch(); done() } })
-
-  const mine = address?.toLowerCase()
-  const visible = open ? bids : bids.filter(b => b.buyer.toLowerCase() === mine)
-  const levels = useMemo(() => stackByPrice(visible, mine), [visible, mine])
-  if (!open && visible.length === 0) return null
-
-  const depth = bids.reduce((s, b) => s + b.usdtLeft, 0n)
+  const filledUsdt = volume?.[0]?.status === 'success' ? (volume[0].result as bigint) : 0n
+  const depthUsdt = bids.reduce((s, b) => s + b.usdtLeft, 0n)
   const best = levels[0]?.price
+
+  if (!open && myBids.length === 0) return null
+
+  if (!open) {
+    return (
+      <Panel title={c.bookTitle}>
+        <p className="text-note text-text-secondary">{c.bookClosed}</p>
+        <MyBids bids={myBids} onDone={done} />
+      </Panel>
+    )
+  }
+
+  const stats: [string, string][] = [
+    [c.bookBest, best !== undefined ? fmtPrice(best) : '—'],
+    [c.bookFloor, l1Floor !== undefined ? fmtPrice(l1Floor) : '—'],
+    [c.bookDepth, `${fmt(depthUsdt, 2)} USDT`],
+    [c.bookVolume, `${fmtCompact(filledUsdt)} USDT`],
+    [c.bookCount, levels.length.toLocaleString()],
+    [c.bookOrders, bids.length.toLocaleString()],
+  ]
 
   return (
     <Panel title={c.bookTitle}>
-      <p className="text-note text-text-secondary">{open ? c.bookNote : c.bookClosed}</p>
+      <p className="text-note text-text-secondary">{c.bookNote}</p>
 
-      {open && (
-        <div className="flex flex-wrap gap-x-6 gap-y-2 border-b border-border-subtle pb-4 font-mono text-note">
-          <span className="text-text-tertiary">{c.bookCount} <span className="text-text-primary">{levels.length}</span></span>
-          <span className="text-text-tertiary">{c.bookBest} <span className="text-brand">{best !== undefined ? fmtPrice(best) : '—'}</span></span>
-          <span className="text-text-tertiary">{c.bookDepth} <span className="text-text-primary">{fmt(depth, 2)} USDT</span></span>
-          {l1Floor !== undefined && (
-            <span className="text-text-tertiary">{c.bookFloor} <span className="text-text-primary">{fmtPrice(l1Floor)}</span></span>
-          )}
-        </div>
-      )}
+      <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-card bg-border-subtle sm:grid-cols-3">
+        {stats.map(([k, v]) => (
+          <div key={k} className="flex flex-col gap-1 bg-bg-subtle p-4">
+            <dt className="text-label uppercase text-text-tertiary">{k}</dt>
+            <dd className="font-mono text-readout font-bold text-text-primary">{v}</dd>
+          </div>
+        ))}
+      </dl>
 
-      {open && (
-        <div className="flex flex-col gap-4 rounded-card border border-border-subtle bg-bg-subtle/40 p-4 md:p-5">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h3 className="text-label uppercase text-text-tertiary">{c.bookBuy}</h3>
-            {l1Floor !== undefined && (
-              <button
-                type="button"
-                onClick={() => setPriceIn(formatUnits(l1Floor, 18))}
-                className="font-mono text-note text-brand transition-colors hover:text-brand/80"
-              >
-                {c.bookUseFloor}
-              </button>
-            )}
-          </div>
-          <div className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-            <Field label={c.bidUsdt} value={usdtIn} onChange={setUsdtIn} />
-            <Field label={c.bidPrice} value={priceIn} onChange={setPriceIn} />
-            {!address ? (
-              <Button label={c.connect} onClick={() => picker?.open()} />
-            ) : bidApproval.needsApproval ? (
-              <Button label={c.approve} onClick={bidApproval.approve} disabled={bidApproval.tx.isBusy} />
-            ) : (
-              <Button
-                label={c.placeBid}
-                disabled={place.isBusy || bidUsdt < ONE || bidPrice === 0n}
-                onClick={() => OURO_BIDBOOK && place.send({
-                  address: OURO_BIDBOOK, abi: OURO_BIDBOOK_ABI, functionName: 'placeBid', args: [bidUsdt, bidPrice],
-                })}
-              />
-            )}
-          </div>
-          <dl>
-            <Row
-              k={c.bidTokens}
-              v={bidPrice > 0n ? fmtCompact(afterFee((bidUsdt * ONE) / bidPrice)) : '—'}
-              strong={bidPrice > 0n && bidUsdt > 0n}
-            />
-          </dl>
-        </div>
-      )}
-
-      <div className="flex flex-col gap-3">
-        <h3 className="text-label uppercase text-text-tertiary">{c.bookList}</h3>
-        {levels.length === 0 ? (
-          <p className="rounded-card border border-dashed border-border-subtle px-4 py-8 text-center text-note text-text-tertiary">
-            {c.noBids}
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-note">
-              <thead>
-                <tr className="border-b border-border-subtle text-left text-text-tertiary">
-                  <th className="px-3 py-2 font-normal">{c.price}</th>
-                  <th className="px-3 py-2 text-right font-normal">{c.left}</th>
-                  <th className="px-3 py-2 text-right font-normal">{c.tokensLeft}</th>
-                  <th className="px-3 py-2 font-normal" />
-                </tr>
-              </thead>
-              <tbody>
-                {levels.map(level => (
-                  <LevelRow key={level.price.toString()} level={level} open={open} user={user} onDone={done} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]">
+        <DepthTable levels={levels} />
+        <aside className="flex min-w-0 flex-col gap-4">
+          <TradeAside
+            bids={bids}
+            levels={levels}
+            user={user}
+            address={address}
+            l1Floor={l1Floor}
+            onDone={done}
+          />
+          <MyBids bids={myBids} onDone={done} empty={address ? c.myBidsNone : c.myBidsConnect} />
+        </aside>
       </div>
     </Panel>
   )
 }
 
-function LevelRow({ level, open, user, onDone }: {
-  level: Level
-  open: boolean
+function DepthTable({ levels }: { levels: Level[] }) {
+  const c = useOuroCopy()
+  return (
+    <div className="flex flex-col gap-3 rounded-card border border-border-subtle p-4 md:p-5">
+      <h3 className="text-label uppercase text-text-tertiary">{c.bookDepthTitle}</h3>
+      {levels.length === 0 ? (
+        <p className="py-8 text-center text-note text-text-tertiary">{c.noBids}</p>
+      ) : (
+        <table className="w-full border-collapse font-mono text-note tabular-nums">
+          <thead>
+            <tr className="border-b border-border-subtle text-left text-text-tertiary">
+              <th className="py-2 pr-2 font-normal">{c.price}</th>
+              <th className="py-2 pr-2 text-right font-normal">{c.tokensLeft}</th>
+              <th className="py-2 pr-2 text-right font-normal">{c.left}</th>
+              <th className="py-2 text-right font-normal">{c.bookOrders}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {levels.slice(0, 20).map(l => (
+              <tr key={l.price.toString()} className="border-b border-border-subtle last:border-b-0">
+                <td className="py-2 pr-2 text-brand">{fmtPrice(l.price)}</td>
+                <td className="py-2 pr-2 text-right text-text-primary">{fmtCompact(l.tokens)}</td>
+                <td className="py-2 pr-2 text-right text-text-primary">{fmt(l.usdtLeft, 2)}</td>
+                <td className="py-2 text-right text-text-secondary">{l.count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  )
+}
+
+function TradeAside({ bids, levels, user, address, l1Floor, onDone }: {
+  bids: Bid[]
+  levels: Level[]
   user: OuroUser
+  address: Address | undefined
+  l1Floor: bigint | undefined
   onDone: () => void
 }) {
   const c = useOuroCopy()
-  const [amount, setAmount] = useState('')
-  const othersUsdt = level.others.reduce((s, b) => s + b.usdtLeft, 0n)
-  const othersFillable = level.price === 0n || othersUsdt === 0n ? 0n : (othersUsdt * ONE) / level.price
-  const target = level.others[0]
+  const [side, setSide] = useState<'sell' | 'bid'>('sell')
+  return (
+    <div className="flex flex-col gap-4">
+      <div role="tablist" aria-label={c.bookSideLabel} className="grid grid-cols-2 gap-1 rounded-input bg-surface-hover/70 p-1">
+        {([['sell', c.bookSellTab], ['bid', c.bookBuyTab]] as const).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={side === id}
+            onClick={() => setSide(id)}
+            className={cn(
+              'rounded-input px-2 py-1.5 text-note font-bold transition-colors',
+              side === id ? 'bg-brand text-bg-base' : 'text-text-tertiary hover:text-text-primary',
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {side === 'sell' ? (
+        <SellPanel bids={bids} user={user} address={address} onDone={onDone} />
+      ) : (
+        <PlacePanel l1Floor={l1Floor} best={levels[0]?.price} address={address} onDone={onDone} />
+      )}
+    </div>
+  )
+}
+
+function SellPanel({ bids, user, address, onDone }: {
+  bids: Bid[]
+  user: OuroUser
+  address: Address | undefined
+  onDone: () => void
+}) {
+  const c = useOuroCopy()
+  const picker = useWalletPicker()
+  const [raw, setRaw] = useState('')
+  const amount = parseAmount(raw) ?? 0n
+  const mine = address?.toLowerCase()
+  const othersFillable = bids
+    .filter(b => !mine || b.buyer.toLowerCase() !== mine)
+    .reduce((s, b) => s + (b.price === 0n ? 0n : (b.usdtLeft * ONE) / b.price), 0n)
+  const maxSell = user.tokenBalance < othersFillable ? user.tokenBalance : othersFillable
+  const target = bestFillTarget(bids, amount > 0n ? amount : 1n, mine)
   const targetFillable = target ? (target.usdtLeft * ONE) / target.price : 0n
-  const qty = parseAmount(amount) ?? 0n
-  // One transaction fills the oldest non-mine bid at this price.
-  const take = target && qty > 0n ? (qty < targetFillable ? qty : targetFillable) : 0n
-  const gross = target ? (take * target.price) / ONE : 0n
+  const take = target && amount > 0n ? (amount < targetFillable ? amount : targetFillable) : 0n
+  const gross = target && take > 0n ? (take * target.price) / ONE : 0n
   const net = gross - (gross * FEE_BPS) / 10_000n
   const approval = useQuoteApproval(OURO_BIDBOOK, take, OURO_TOKEN!)
-  const fill = useTxAction({ action: 'fill', onConfirmed: () => { approval.refetch(); onDone() } })
-  const cancel = useTxAction({ action: 'cancel', onConfirmed: onDone })
-  const maxSell = user.tokenBalance < othersFillable ? user.tokenBalance : othersFillable
-  const canSell = open && level.others.length > 0 && user.tokenBalance > 0n
-  const mineHead = level.mine[0]
+  const fill = useTxAction({ action: 'fill', onConfirmed: () => { setRaw(''); approval.refetch(); onDone() } })
 
   return (
-    <tr className={cn('border-b border-border-subtle align-top last:border-b-0', level.mine.length > 0 && 'bg-brand/5')}>
-      <td className="px-3 py-3 font-mono text-brand">{fmtPrice(level.price)}</td>
-      <td className="px-3 py-3 text-right font-mono">{fmt(level.usdtLeft, 2)}</td>
-      <td className="px-3 py-3 text-right font-mono text-text-secondary">{fmtCompact(level.fillable)}</td>
-      <td className="px-3 py-3">
-        <div className="flex flex-col items-end gap-2">
-          {canSell && (
-            <>
-              <div className="flex h-9 items-stretch overflow-hidden rounded-input border border-border-subtle bg-bg-subtle focus-within:border-brand">
-                <input
-                  value={amount}
-                  onChange={e => setAmount(e.target.value)}
-                  placeholder={c.sellAmount}
-                  inputMode="decimal"
-                  className="w-28 min-w-0 bg-transparent px-2 font-mono text-text-primary outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => setAmount(formatUnits(maxSell, 18))}
-                  disabled={maxSell === 0n}
-                  className="border-l border-border-subtle px-2 font-mono text-label font-bold uppercase text-brand transition-colors hover:bg-brand/10 disabled:cursor-not-allowed disabled:text-text-quiet"
-                >
-                  MAX
-                </button>
-              </div>
-              {take > 0n && (
-                <span className="font-mono text-text-tertiary">{c.youGet}: {fmt(net, 2)}</span>
-              )}
-              {approval.needsApproval ? (
-                <Button label={c.approveToken} size="sm" onClick={approval.approve} disabled={approval.tx.isBusy} />
-              ) : (
-                <Button
-                  label={c.sell}
-                  size="sm"
-                  disabled={fill.isBusy || take === 0n || !target}
-                  onClick={() => target && OURO_BIDBOOK && fill.send({
-                    address: OURO_BIDBOOK, abi: OURO_BIDBOOK_ABI, functionName: 'fill',
-                    args: [target.id, take, net],
-                  })}
-                />
-              )}
-            </>
-          )}
-          {mineHead && (
-            <Button
-              label={level.mine.length > 1 ? `${c.cancel} · ${level.mine.length}` : c.cancel}
-              size="sm"
-              variant="danger"
-              disabled={cancel.isBusy}
-              onClick={() => OURO_BIDBOOK && cancel.send({
-                address: OURO_BIDBOOK, abi: OURO_BIDBOOK_ABI, functionName: 'cancel', args: [mineHead.id],
-              })}
-            />
-          )}
-        </div>
-      </td>
-    </tr>
+    <div className="flex flex-col gap-4 rounded-card border border-border-subtle bg-bg-subtle/40 p-4">
+      <h3 className="text-label uppercase text-text-tertiary">{c.bookSellTitle}</h3>
+      <Field label={c.sellAmount} value={raw} onChange={setRaw} />
+      <div className="flex flex-wrap items-center justify-between gap-2 text-note">
+        <span className="text-text-tertiary">{c.bookBalance}: {fmtCompact(user.tokenBalance)} OURO</span>
+        <button
+          type="button"
+          disabled={maxSell === 0n}
+          onClick={() => setRaw(formatUnits(maxSell, 18))}
+          className="font-mono text-label font-bold uppercase text-brand hover:text-brand/80 disabled:text-text-quiet"
+        >
+          MAX
+        </button>
+      </div>
+      {take > 0n && target && (
+        <dl className="flex flex-col gap-1">
+          <Row k={c.price} v={fmtPrice(target.price)} />
+          <Row k={c.youGet} v={`${fmt(net, 2)} USDT`} strong />
+        </dl>
+      )}
+      {!address ? (
+        <Button label={c.connect} onClick={() => picker?.open()} />
+      ) : approval.needsApproval ? (
+        <Button label={c.approveToken} onClick={approval.approve} disabled={approval.tx.isBusy} />
+      ) : (
+        <Button
+          label={c.sell}
+          disabled={fill.isBusy || take === 0n || !target}
+          onClick={() => target && OURO_BIDBOOK && fill.send({
+            address: OURO_BIDBOOK, abi: OURO_BIDBOOK_ABI, functionName: 'fill',
+            args: [target.id, take, net],
+          })}
+        />
+      )}
+      {maxSell > 0n && take > 0n && take < amount && amount <= maxSell && (
+        <p className="text-note text-text-tertiary">{c.bookSellPartial}</p>
+      )}
+    </div>
+  )
+}
+
+function PlacePanel({ l1Floor, best, address, onDone }: {
+  l1Floor: bigint | undefined
+  best: bigint | undefined
+  address: Address | undefined
+  onDone: () => void
+}) {
+  const c = useOuroCopy()
+  const picker = useWalletPicker()
+  const [usdtIn, setUsdtIn] = useState('')
+  const [priceIn, setPriceIn] = useState('')
+  const bidUsdt = parseAmount(usdtIn) ?? 0n
+  const bidPrice = parseAmount(priceIn) ?? 0n
+  const bidApproval = useQuoteApproval(OURO_BIDBOOK, bidUsdt, OURO_USDT!)
+  const place = useTxAction({ action: 'bid', onConfirmed: () => { setUsdtIn(''); bidApproval.refetch(); onDone() } })
+  const suggest = best !== undefined && l1Floor !== undefined
+    ? (best > l1Floor ? best : l1Floor)
+    : (best ?? l1Floor)
+
+  return (
+    <div className="flex flex-col gap-4 rounded-card border border-border-subtle bg-bg-subtle/40 p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-label uppercase text-text-tertiary">{c.bookBuy}</h3>
+        {suggest !== undefined && (
+          <button
+            type="button"
+            onClick={() => setPriceIn(formatUnits(suggest, 18))}
+            className="font-mono text-note text-brand transition-colors hover:text-brand/80"
+          >
+            {best !== undefined && best >= (l1Floor ?? 0n) ? c.bookUseBest : c.bookUseFloor}
+          </button>
+        )}
+      </div>
+      <p className="rounded-input bg-brand/10 px-3 py-2 text-note text-brand">{c.bookBuyOnly}</p>
+      <Field label={c.bidPrice} value={priceIn} onChange={setPriceIn} />
+      <Field label={c.bidUsdt} value={usdtIn} onChange={setUsdtIn} />
+      <dl>
+        <Row
+          k={c.bidTokens}
+          v={bidPrice > 0n ? fmtCompact(afterFee((bidUsdt * ONE) / bidPrice)) : '—'}
+          strong={bidPrice > 0n && bidUsdt > 0n}
+        />
+      </dl>
+      {!address ? (
+        <Button label={c.connect} onClick={() => picker?.open()} />
+      ) : bidApproval.needsApproval ? (
+        <Button label={c.approve} onClick={bidApproval.approve} disabled={bidApproval.tx.isBusy} />
+      ) : (
+        <Button
+          label={c.placeBid}
+          disabled={place.isBusy || bidUsdt < ONE || bidPrice === 0n}
+          onClick={() => OURO_BIDBOOK && place.send({
+            address: OURO_BIDBOOK, abi: OURO_BIDBOOK_ABI, functionName: 'placeBid', args: [bidUsdt, bidPrice],
+          })}
+        />
+      )}
+    </div>
+  )
+}
+
+function MyBids({ bids, onDone, empty }: { bids: Bid[]; onDone: () => void; empty?: string }) {
+  const c = useOuroCopy()
+  if (bids.length === 0 && !empty) return null
+  return (
+    <div className="flex flex-col gap-3 rounded-card border border-border-subtle p-4">
+      <h3 className="text-label uppercase text-text-tertiary">{c.myBids}</h3>
+      {bids.length === 0 ? (
+        <p className="text-note text-text-tertiary">{empty}</p>
+      ) : (
+        <ul className="flex flex-col divide-y divide-border-subtle">
+          {bids.map(b => <MyBidRow key={b.id.toString()} bid={b} onDone={onDone} />)}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function MyBidRow({ bid, onDone }: { bid: Bid; onDone: () => void }) {
+  const c = useOuroCopy()
+  const cancel = useTxAction({ action: 'cancel', onConfirmed: onDone })
+  const tokens = bid.price === 0n ? 0n : (bid.usdtLeft * ONE) / bid.price
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-3 py-3 font-mono text-note tabular-nums">
+      <span className="text-brand">{fmtPrice(bid.price)}</span>
+      <span className="text-text-secondary">{fmt(bid.usdtLeft, 2)} USDT</span>
+      <span className="text-text-secondary">{fmtCompact(tokens)} OURO</span>
+      <Button
+        label={c.cancel}
+        size="sm"
+        variant="danger"
+        disabled={cancel.isBusy}
+        onClick={() => OURO_BIDBOOK && cancel.send({
+          address: OURO_BIDBOOK, abi: OURO_BIDBOOK_ABI, functionName: 'cancel', args: [bid.id],
+        })}
+      />
+    </li>
   )
 }
 
