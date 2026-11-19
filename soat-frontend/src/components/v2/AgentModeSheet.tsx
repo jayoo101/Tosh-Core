@@ -34,9 +34,10 @@ export function useAgentAddress(): Address | undefined {
 }
 
 /** The same stored Agent address, editable outside any sheet. */
-export function AgentAddressField({ label }: { label: string }) {
+export function AgentAddressField({ label, hint, invalidHint }: { label: string; hint?: string; invalidHint?: string }) {
   const stored = useSyncExternalStore(subscribeAddr, readAddr, () => '')
-  return <Field label={label} value={stored} onValueChange={writeAddr} placeholder="0x…" />
+  const bad = invalidHint && stored.trim() !== '' && !isAddress(stored.trim()) ? invalidHint : undefined
+  return <Field label={label} value={stored} onValueChange={writeAddr} placeholder="0x…" hint={hint} error={bad} />
 }
 
 /** Calls `onSeen` once the account's nonce moves past what it was when watching began. */
