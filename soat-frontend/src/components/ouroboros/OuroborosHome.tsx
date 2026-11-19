@@ -3,13 +3,14 @@
 import Link from 'next/link'
 import { ArrowRight, ShieldCheck } from 'lucide-react'
 
-import { Badge, formatCountdown, useNowSec } from '@/components/ui'
+import { Badge } from '@/components/ui'
 import { ACTIVE_CHAIN_LABEL } from '@/lib/chain'
 import { OURO_ENABLED } from '@/lib/ouroboros/config'
 
 import { useOuroCopy } from './copy'
 import { OuroborosMark } from './OuroborosMark'
-import { phaseCountdown, useOuroState } from './useOuro'
+import { Countdown } from './Countdown'
+import { useOuroState } from './useOuro'
 
 /** The home page: Ouroboros first. The live phase and countdown need the contracts configured. */
 export function OuroborosHome() {
@@ -99,18 +100,12 @@ export function OuroborosHome() {
 function LivePhase() {
   const c = useOuroCopy()
   const { state } = useOuroState()
-  const now = useNowSec()
   const p = state.phase
-  const countdown = phaseCountdown(state, c, now)
   if (!p) return null
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    <div className="flex flex-col items-start gap-3">
       <Badge tone={p === 'Failed' ? 'danger' : 'info'} pip live={p === 'L1' || p === 'L2'}>{c.phase[p]}</Badge>
-      {countdown && now > 0 && (
-        <span className="font-mono text-readout text-brand">
-          {countdown[0]} {formatCountdown(countdown[1])}
-        </span>
-      )}
+      <Countdown state={state} />
     </div>
   )
 }
