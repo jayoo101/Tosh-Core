@@ -5,7 +5,7 @@ import { erc20Abi } from 'viem'
 import { useReadContract } from 'wagmi'
 
 import { Panel, Row } from '@/components/x/Panel'
-import { cn, useNowSec } from '@/components/ui'
+import { useNowSec } from '@/components/ui'
 import { fill } from '@/i18n'
 import { AgentAddressField, AgentModeSheet, useAgentAddress, type AgentStep } from '@/components/v2/AgentModeSheet'
 import { NATIVE_SYMBOL } from '@/lib/chain'
@@ -18,6 +18,7 @@ import { fmt, fmtCompact } from './fmt'
 import { l2PoolCap, useOuroUser, type OuroState } from './useOuro'
 import { L2_MAX_PAY_BPS } from './MintPanel'
 import { useOuroRef } from './useOuroRef'
+import { PayToggle, SharesInput } from './SharesInput'
 
 const BNB_BUFFER_BPS = 50n
 /** Prepared before the open, the quote has hours to move; the contract refunds what it does not spend. */
@@ -110,30 +111,13 @@ export function AgentPanel({ state, onDone }: { state: OuroState; onDone: () => 
 
       {minting && (
         <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="flex flex-col gap-1 text-note text-text-tertiary">
-              {c.shares}
-              <input
-                type="number" min={1} max={Math.max(max, 1)} value={n}
-                onChange={e => setShares(Math.floor(Number(e.target.value)) || 1)}
-                className="w-28 rounded-input border border-border-subtle bg-bg-subtle px-3 py-2 font-mono text-text-primary"
-              />
-            </label>
-            <div className="flex overflow-hidden rounded-input border border-border-subtle">
-              {(['USDT', NATIVE_SYMBOL] as const).map((label, i) => (
-                <button
-                  key={label} type="button" onClick={() => setPayBnb(i === 1)}
-                  className={cn('px-3 py-2 font-mono text-note',
-                    payBnb === (i === 1) ? 'bg-brand text-bg-base' : 'text-text-secondary hover:bg-surface-hover')}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <span className="font-mono text-note text-text-secondary">
-              {pay ? (bnbValue === undefined ? '…' : `${fmt(bnbValue, 6)} ${NATIVE_SYMBOL}`) : `${fmt(cost)} USDT`}
-            </span>
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <SharesInput label={c.shares} value={n} max={max} onChange={setShares} />
+            <PayToggle label={c.payWith} bnb={payBnb} onChange={setPayBnb} />
           </div>
+          <dl className="text-note">
+            <Row k={c.cost} v={pay ? (bnbValue === undefined ? '…' : `${fmt(bnbValue, 6)} ${NATIVE_SYMBOL}`) : `${fmt(cost)} USDT`} strong />
+          </dl>
           <AgentModeSheet
             title={`${c.mint} ${n}`}
             summary={c.agentMintSummary}
