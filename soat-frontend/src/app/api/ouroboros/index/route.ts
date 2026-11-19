@@ -11,6 +11,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { cronGate } from '@/app/lib/cronAuth'
 import { runOuroIndexPass, type OuroIndexPass } from '@/app/lib/ouroIndexer'
 import { getSupabaseAdmin } from '@/app/lib/supabaseAdmin'
+import { OURO_ENABLED } from '@/lib/ouroboros/config'
 import { reportError } from '@/lib/observability'
 
 export const maxDuration = 60
@@ -24,6 +25,8 @@ const serialise = (p: OuroIndexPass) => ({
 async function handle(req: NextRequest): Promise<NextResponse> {
   const gated = cronGate(req)
   if (gated) return gated
+  // The cron runs every minute before launch too; an unset deployment is not an error to report.
+  if (!OURO_ENABLED) return NextResponse.json({ error: 'ouroboros is not configured (NEXT_PUBLIC_OURO_*)' }, { status: 503 })
 
   const started = Date.now()
   const passes: ReturnType<typeof serialise>[] = []
