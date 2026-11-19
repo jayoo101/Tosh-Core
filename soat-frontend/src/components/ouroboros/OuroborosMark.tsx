@@ -28,14 +28,14 @@ function circle(deg: number, r: number, radius: number): string {
 }
 
 /** Tail to neck in three bands, lightest first — the opacities of `LogoMark`'s bars. */
-const BODY = [
+export const BODY = [
   { d: band(22, 122, 3, 6.5), opacity: 0.45 },
   { d: band(130, 232, 7, 9), opacity: 0.72 },
   { d: band(240, 336, 9.5, 11), opacity: 1 },
 ]
 
 /** The head closes on the tail; the eye is cut out (even-odd), so any background shows through. */
-const HEAD = `${circle(354, R, 13.5)} ${circle(359, R + 5, 3.2)}`
+export const HEAD = `${circle(354, R, 13.5)} ${circle(359, R + 5, 3.2)}`
 
 /** The Ouroboros mark: a snake ring swallowing its tail. Takes `currentColor`, so nav states recolour it. */
 export function OuroborosMark({ className }: { className?: string; 'aria-hidden'?: boolean | 'true' | 'false' }) {

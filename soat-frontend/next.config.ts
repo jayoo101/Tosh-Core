@@ -23,6 +23,10 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: '/:path*', headers: [...SECURITY_HEADERS] }]
   },
+  // The whitepaper page is retired; links already shared keep landing somewhere.
+  async redirects() {
+    return [{ source: '/whitepaper', destination: '/ouroboros', permanent: false }]
+  },
 };
 
 /**
