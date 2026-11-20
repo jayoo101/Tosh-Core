@@ -233,11 +233,18 @@ function ApplyForm({ busy, run, connected, connectButton }: {
   const [label, setLabel] = useState('')
   const [copied, setCopied] = useState(false)
   const [liveCode, setLiveCode] = useState<string | null>(null)
+  const [submittedCode, setSubmittedCode] = useState<string | null>(null)
   const origin = useSyncExternalStore(noopSubscribe, () => window.location.origin, () => '')
   const normalized = code.trim().toLowerCase()
-  const inviteUrl = origin !== '' && REF_CODE_RE.test(normalized)
+  const valid = REF_CODE_RE.test(normalized)
+  // The link is only handed out once the application went through.
+  const inviteUrl = origin !== '' && valid && submittedCode === normalized
     ? `${origin}/ouroboros?ref=${normalized}`
     : null
+  const apply = async () => {
+    const code = normalized
+    if (await run({ action: 'apply', code, label: label.trim() })) setSubmittedCode(code)
+  }
   const live = inviteUrl !== null && liveCode === normalized
 
   useEffect(() => {
@@ -306,25 +313,29 @@ function ApplyForm({ busy, run, connected, connectButton }: {
           />
         </label>
 
-        <div
-          className={`flex flex-col gap-3 rounded-card border p-4 transition-colors ${inviteUrl ? 'border-brand/30 bg-brand/5' : 'border-dashed border-border-subtle bg-bg-base/40'}`}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <span className="flex items-center gap-2 text-label uppercase text-text-tertiary">
-              <Link2 className="size-3.5" aria-hidden />
-              {c.url}
-            </span>
-            {inviteUrl && (
+        {connected ? (
+          <Button
+            label={busy ? c.signing : inviteUrl ? c.applied : c.applySubmit}
+            size="lg"
+            full
+            onClick={() => void apply()}
+            disabled={busy || !valid || inviteUrl !== null}
+          />
+        ) : connectButton}
+
+        {inviteUrl && (
+          <div className="flex flex-col gap-3 rounded-card border border-brand/30 bg-brand/5 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2 text-label uppercase text-text-tertiary">
+                <Link2 className="size-3.5" aria-hidden />
+                {c.url}
+              </span>
               <span className={`rounded-pill border px-2 py-0.5 text-label ${live ? 'border-brand/40 bg-brand/10 text-brand' : 'border-border-subtle text-text-tertiary'}`}>
                 {live ? c.linkLive : c.linkPending}
               </span>
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            <code className={`min-w-0 flex-1 truncate font-mono text-note ${inviteUrl ? 'text-text-primary' : 'text-text-quiet'}`}>
-              {inviteUrl ?? c.urlPlaceholder}
-            </code>
-            {inviteUrl && (
+            </div>
+            <div className="flex items-center gap-3">
+              <code className="min-w-0 flex-1 truncate font-mono text-note text-text-primary">{inviteUrl}</code>
               <button
                 type="button"
                 onClick={copy}
@@ -333,19 +344,9 @@ function ApplyForm({ busy, run, connected, connectButton }: {
                 {copied ? <Check className="size-3.5" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
                 {copied ? c.copied : c.copy}
               </button>
-            )}
+            </div>
           </div>
-        </div>
-
-        {connected ? (
-          <Button
-            label={busy ? c.signing : c.applySubmit}
-            size="lg"
-            full
-            onClick={() => void run({ action: 'apply', code: normalized, label: label.trim() })}
-            disabled={busy || !inviteUrl}
-          />
-        ) : connectButton}
+        )}
         <p className="flex gap-2 text-note text-text-tertiary">
           <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
           {c.applyNote}
