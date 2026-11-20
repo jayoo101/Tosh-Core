@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Gift } from 'lucide-react'
+import { Check, Copy, Gift, Info, Link2, Shuffle } from 'lucide-react'
 import { parseAbi, parseUnits } from 'viem'
 import { useAccount, useReadContract, useSignMessage } from 'wagmi'
 
@@ -12,7 +12,7 @@ import { TARGET_CHAIN_ID } from '@/lib/contracts'
 import { AUTOPAY_LIMITS } from '@/lib/ouroboros/autopayPlan'
 import { OURO_REF_PAYER, OURO_TREASURY } from '@/lib/ouroboros/config'
 import {
-  MAX_REF_BONUS_WEI, randomRefCode, REF_READ_SIG_TTL_MS, refMessage, type RefAction,
+  MAX_REF_BONUS_WEI, randomRefCode, REF_CODE_RE, REF_READ_SIG_TTL_MS, refMessage, type RefAction,
 } from '@/lib/ouroboros/ref'
 
 import { Field } from './Field'
@@ -228,7 +228,7 @@ function ApplyForm({ busy, run, connected, connectButton }: {
   const [liveCode, setLiveCode] = useState<string | null>(null)
   const origin = useSyncExternalStore(noopSubscribe, () => window.location.origin, () => '')
   const normalized = code.trim().toLowerCase()
-  const inviteUrl = origin !== '' && /^[a-z0-9]{3,16}$/.test(normalized)
+  const inviteUrl = origin !== '' && REF_CODE_RE.test(normalized)
     ? `${origin}/ouroboros?ref=${normalized}`
     : null
   const live = inviteUrl !== null && liveCode === normalized
@@ -245,37 +245,87 @@ function ApplyForm({ busy, run, connected, connectButton }: {
     return () => { cancelled = true }
   }, [inviteUrl, normalized])
 
+  const codeInvalid = normalized !== '' && !REF_CODE_RE.test(normalized)
+  const copy = () => {
+    if (!inviteUrl) return
+    void navigator.clipboard.writeText(inviteUrl).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+
   return (
     <Panel title={c.applyTitle}>
-      <div className="flex flex-col gap-4">
-        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-          <Field label={c.code} value={code} onChange={setCode} inputMode="text" />
-          <Button label={c.randomCode} variant="ghost" onClick={() => setCode(randomRefCode())} disabled={busy} className="h-11" />
-        </div>
-        <p className="-mt-2 text-label text-text-quiet">{c.codeHint}</p>
-        <Field label={c.label} value={label} onChange={setLabel} inputMode="text" />
+      <div className="flex flex-col gap-5">
+        <label className="flex flex-col gap-2">
+          <span className="flex items-center justify-between text-note text-text-secondary">
+            {c.code}
+            <span className={`font-mono text-label ${codeInvalid ? 'text-danger' : 'text-text-quiet'}`}>{c.codeHint}</span>
+          </span>
+          <div
+            className="flex h-12 items-stretch overflow-hidden rounded-input border border-border-subtle bg-bg-subtle transition-colors focus-within:border-brand"
+          >
+            <span className="flex items-center border-r border-border-subtle px-3 font-mono text-note text-text-quiet">?ref=</span>
+            <input
+              value={code}
+              onChange={e => setCode(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 16))}
+              placeholder={c.codePlaceholder}
+              autoComplete="off"
+              spellCheck={false}
+              className="min-w-0 flex-1 bg-transparent px-3 font-mono text-body text-text-primary outline-none placeholder:text-text-quiet"
+            />
+            <button
+              type="button"
+              onClick={() => setCode(randomRefCode())}
+              disabled={busy}
+              className="flex items-center gap-1.5 border-l border-border-subtle px-4 font-mono text-label font-bold uppercase text-brand transition-colors hover:bg-brand/10 disabled:cursor-not-allowed disabled:text-text-quiet"
+            >
+              <Shuffle className="size-3.5" aria-hidden />
+              {c.randomCode}
+            </button>
+          </div>
+        </label>
 
-        <div className="flex flex-col gap-2 rounded-input border border-border-subtle bg-bg-subtle px-4 py-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-label uppercase text-text-tertiary">{c.url}</span>
+        <label className="flex flex-col gap-2">
+          <span className="flex items-center justify-between text-note text-text-secondary">
+            {c.label}
+            <span className="font-mono text-label text-text-quiet">{label.length}/64</span>
+          </span>
+          <input
+            value={label}
+            onChange={e => setLabel(e.target.value.slice(0, 64))}
+            placeholder={c.labelPlaceholder}
+            className="h-12 rounded-input border border-border-subtle bg-bg-subtle px-3 text-body text-text-primary outline-none transition-colors placeholder:text-text-quiet focus:border-brand"
+          />
+        </label>
+
+        <div
+          className={`flex flex-col gap-3 rounded-card border p-4 transition-colors ${inviteUrl ? 'border-brand/30 bg-brand/5' : 'border-dashed border-border-subtle bg-bg-base/40'}`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-2 text-label uppercase text-text-tertiary">
+              <Link2 className="size-3.5" aria-hidden />
+              {c.url}
+            </span>
             {inviteUrl && (
               <span className={`rounded-pill border px-2 py-0.5 text-label ${live ? 'border-brand/40 bg-brand/10 text-brand' : 'border-border-subtle text-text-tertiary'}`}>
                 {live ? c.linkLive : c.linkPending}
               </span>
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <code className={`min-w-0 flex-1 break-all font-mono text-note ${inviteUrl ? 'text-text-primary' : 'text-text-quiet'}`}>
+          <div className="flex items-center gap-3">
+            <code className={`min-w-0 flex-1 truncate font-mono text-note ${inviteUrl ? 'text-text-primary' : 'text-text-quiet'}`}>
               {inviteUrl ?? c.urlPlaceholder}
             </code>
             {inviteUrl && (
-              <Button
-                label={copied ? c.copied : c.copy} size="sm" variant="ghost"
-                onClick={() => void navigator.clipboard.writeText(inviteUrl).then(() => {
-                  setCopied(true)
-                  setTimeout(() => setCopied(false), 1500)
-                })}
-              />
+              <button
+                type="button"
+                onClick={copy}
+                className="flex shrink-0 items-center gap-1.5 rounded-input border border-border-subtle px-3 py-1.5 font-mono text-label font-bold uppercase text-text-secondary transition-colors hover:border-brand hover:text-brand"
+              >
+                {copied ? <Check className="size-3.5" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
+                {copied ? c.copied : c.copy}
+              </button>
             )}
           </div>
         </div>
@@ -283,12 +333,16 @@ function ApplyForm({ busy, run, connected, connectButton }: {
         {connected ? (
           <Button
             label={busy ? c.signing : c.applySubmit}
+            size="lg"
             full
             onClick={() => void run({ action: 'apply', code: normalized, label: label.trim() })}
             disabled={busy || !inviteUrl}
           />
         ) : connectButton}
-        <p className="text-note text-text-tertiary">{c.applyNote}</p>
+        <p className="flex gap-2 text-note text-text-tertiary">
+          <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+          {c.applyNote}
+        </p>
       </div>
     </Panel>
   )
