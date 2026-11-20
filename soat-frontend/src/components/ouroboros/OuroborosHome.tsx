@@ -46,7 +46,7 @@ export function OuroborosHome() {
                 <ArrowRight className="size-4" aria-hidden />
               </Link>
               <Link
-                href="/ouroboros/partners"
+                href="/rewards"
                 className="flex items-center gap-2 rounded-pill border border-border-subtle px-6 py-3 font-bold text-text-primary transition-colors hover:border-brand hover:text-brand"
               >
                 {c.homePartners}

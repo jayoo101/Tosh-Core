@@ -13,9 +13,11 @@ import { OURO_BIDBOOK_ABI, OURO_MINT_ABI } from '@/lib/ouroboros/abis'
 import { OURO_BIDBOOK, OURO_MINT, OURO_TOKEN, OURO_USDT } from '@/lib/ouroboros/config'
 
 import { useOuroCopy } from './copy'
+import { Field } from './Field'
 import { fmt, fmtCompact, fmtPrice, parseAmount } from './fmt'
-import { InviteContestPanel } from './InviteContestPanel'
 import type { OuroUser } from './useOuro'
+
+export { Field }
 
 const ONE = 10n ** 18n
 const FEE_BPS = 200n
@@ -149,7 +151,7 @@ export function BidBookPanel({ open, user, address, onDone }: {
   const best = levels[0]?.price
 
   if (!open && myBids.length === 0) {
-    return <InviteContestPanel />
+    return null
   }
 
   if (!open) {
@@ -157,9 +159,6 @@ export function BidBookPanel({ open, user, address, onDone }: {
       <Panel title={c.bookTitle}>
         <p className="text-note text-text-secondary">{c.bookClosed}</p>
         <MyBids bids={myBids} onDone={done} />
-        <div className="mt-4">
-          <InviteContestPanel />
-        </div>
       </Panel>
     )
   }
@@ -184,8 +183,6 @@ export function BidBookPanel({ open, user, address, onDone }: {
           </div>
         ))}
       </dl>
-
-      <InviteContestPanel />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]">
         <DepthTable levels={levels} />
@@ -437,16 +434,3 @@ function MyBidRow({ bid, onDone }: { bid: Bid; onDone: () => void }) {
   )
 }
 
-export function Field({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  return (
-    <label className="flex flex-col gap-1.5 text-note text-text-tertiary">
-      {label}
-      <input
-        inputMode="decimal"
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        className="h-11 w-full rounded-input border border-border-subtle bg-bg-subtle px-3 font-mono text-text-primary outline-none focus:border-brand"
-      />
-    </label>
-  )
-}

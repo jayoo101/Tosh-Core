@@ -1,18 +1,19 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { Gift } from 'lucide-react'
 import { parseAbi, parseUnits } from 'viem'
 import { useAccount, useReadContract, useSignMessage } from 'wagmi'
 
 import { Panel } from '@/components/x/Panel'
-import { AddressLink, Button } from '@/components/ui'
+import { AddressLink, Button, useIsHydrated } from '@/components/ui'
 import { useWalletPicker } from '@/components/WalletPicker'
 import { TARGET_CHAIN_ID } from '@/lib/contracts'
 import { AUTOPAY_LIMITS } from '@/lib/ouroboros/autopayPlan'
 import { OURO_REF_PAYER, OURO_TREASURY } from '@/lib/ouroboros/config'
 import { MAX_REF_BONUS_WEI, randomRefCode, refMessage, type RefAction } from '@/lib/ouroboros/ref'
 
-import { Field } from './BidBookPanel'
+import { Field } from './Field'
 import { fmt } from './fmt'
 import { usePartnersCopy } from './partnersCopy'
 
@@ -35,6 +36,7 @@ interface Report {
 
 interface Autopay { enabled: boolean; lastRunAt: string | null; lastStatus: string | null; lastDetail: string | null }
 
+const noopSubscribe = () => () => {}
 const usdt = (wei: string) => `${fmt(BigInt(wei), 2)} USDT`
 /** A USDT amount typed by the admin, as wei; undefined unless it is above 0 and at most the cap. */
 const toWei = (s: string) => {
@@ -47,13 +49,17 @@ const toWei = (s: string) => {
 export function PartnersApp() {
   const c = usePartnersCopy()
   const picker = useWalletPicker()
-  const { address } = useAccount()
+  const hydrated = useIsHydrated()
+  const { address, status } = useAccount()
   const { signMessageAsync } = useSignMessage()
   const signer = useReadContract({
     address: OURO_TREASURY, abi: SAFE_ABI, functionName: 'isOwner', args: address ? [address] : undefined,
     chainId: TARGET_CHAIN_ID, query: { enabled: ADMIN_ENABLED && OURO_TREASURY !== undefined && address !== undefined },
   })
   const isAdmin = ADMIN_ENABLED && signer.data === true
+  // Wait for wagmi to finish reconnecting before choosing Connect vs Sign,
+  // otherwise the button flips every time the connector briefly goes idle.
+  const walletReady = hydrated && status !== 'connecting' && status !== 'reconnecting'
 
   // Kept with the wallet that signed for it, and shown only while that wallet
   // is connected: switching wallets must not leave an admin listing on screen.
@@ -89,28 +95,65 @@ export function PartnersApp() {
     }
   }
 
+  const connectButton = !walletReady
+    ? <Button label={c.connect} full disabled />
+    : <Button label={c.connect} full onClick={() => picker?.open()} />
+
   return (
     <div className="flex flex-col gap-6">
-      <Panel title={c.title}>
-        <div className="flex flex-col gap-3">
-          <p className="text-note text-text-secondary">{c.intro}</p>
-          {address && (!ADMIN_ENABLED || signer.data !== undefined) && (
-            <p className="text-note text-text-tertiary">{isAdmin ? c.adminRole : c.partnerRole}</p>
-          )}
-          {!address ? (
-            <Button label={c.connect} onClick={() => picker?.open()} />
-          ) : (
-            <Button
-              label={busy ? c.signing : c.sign}
-              onClick={() => void run({ action: isAdmin ? 'list' : 'view' })}
-              disabled={busy || (ADMIN_ENABLED && signer.isLoading)}
-            />
-          )}
-          {message && <p className="text-note text-text-secondary">{message}</p>}
+      <header className="glow-frame glow-flow relative isolate overflow-hidden rounded-panel bg-surface-card/85">
+        <div aria-hidden="true" className="hero-grid pointer-events-none absolute inset-0 -z-10" />
+        <div className="flex flex-col gap-8 p-6 md:p-10">
+          <div className="flex max-w-3xl flex-col gap-3">
+            <span className="flex w-fit items-center gap-2 rounded-pill border border-brand/40 bg-brand/10 px-3 py-1 font-mono text-label uppercase text-brand">
+              <Gift className="size-3.5" aria-hidden />
+              {c.kicker}
+            </span>
+            <h1 className="font-mono text-3xl font-bold tracking-tight text-text-primary md:text-4xl">{c.title}</h1>
+            <p className="text-pretty text-note text-text-secondary md:text-body">{c.intro}</p>
+          </div>
+          <ol className="grid gap-3 md:grid-cols-3">
+            {c.steps.map(([title, body], i) => (
+              <li key={title} className="flex gap-3 rounded-card border border-border-subtle bg-bg-base/60 p-4">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-pill border border-brand/40 bg-brand/10 font-mono text-label font-bold text-brand">
+                  {i + 1}
+                </span>
+                <div className="flex min-w-0 flex-col gap-1">
+                  <span className="text-note font-bold text-text-primary">{title}</span>
+                  <span className="text-note text-text-tertiary">{body}</span>
+                </div>
+              </li>
+            ))}
+          </ol>
         </div>
-      </Panel>
+      </header>
 
-      {address && <ApplyForm busy={busy} run={run} />}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:items-start">
+        <ApplyForm busy={busy} run={run} connected={walletReady && !!address} connectButton={connectButton} />
+
+        <Panel title={isAdmin ? c.adminTitle : c.recordsTitle}>
+          <div className="flex flex-col gap-4">
+            <p className="text-note text-text-secondary">
+              {walletReady && address && (!ADMIN_ENABLED || signer.data !== undefined)
+                ? (isAdmin ? c.adminRole : c.partnerRole)
+                : c.recordsNote}
+            </p>
+            {walletReady && address ? (
+              <Button
+                label={busy ? c.signing : c.sign}
+                full
+                onClick={() => void run({ action: isAdmin ? 'list' : 'view' })}
+                disabled={busy}
+              />
+            ) : connectButton}
+            {message && (
+              <p className="rounded-input border border-border-subtle bg-bg-subtle px-3 py-2 text-note text-text-secondary">
+                {message}
+              </p>
+            )}
+          </div>
+        </Panel>
+      </div>
 
       {report && (
         <>
@@ -128,24 +171,28 @@ export function PartnersApp() {
 
 type Run = (request: RefAction) => Promise<boolean | undefined>
 
-function ApplyForm({ busy, run }: { busy: boolean; run: Run }) {
+function ApplyForm({ busy, run, connected, connectButton }: {
+  busy: boolean; run: Run; connected: boolean; connectButton: ReactNode
+}) {
   const c = usePartnersCopy()
   const [code, setCode] = useState('')
   const [label, setLabel] = useState('')
   const [copied, setCopied] = useState(false)
-  const [live, setLive] = useState(false)
+  const [liveCode, setLiveCode] = useState<string | null>(null)
+  const origin = useSyncExternalStore(noopSubscribe, () => window.location.origin, () => '')
   const normalized = code.trim().toLowerCase()
-  const inviteUrl = typeof window !== 'undefined' && /^[a-z0-9]{3,16}$/.test(normalized)
-    ? `${window.location.origin}/ouroboros?ref=${normalized}`
+  const inviteUrl = origin !== '' && /^[a-z0-9]{3,16}$/.test(normalized)
+    ? `${origin}/ouroboros?ref=${normalized}`
     : null
+  const live = inviteUrl !== null && liveCode === normalized
 
   useEffect(() => {
-    if (!inviteUrl) { setLive(false); return }
+    if (!inviteUrl) return
     let cancelled = false
     void fetch(`/api/ouroboros/ref/check?code=${normalized}`)
       .then(r => r.ok ? r.json() : null)
       .then((body: { registered?: boolean } | null) => {
-        if (!cancelled && body?.registered) setLive(true)
+        if (!cancelled && body?.registered) setLiveCode(normalized)
       })
       .catch(() => {})
     return () => { cancelled = true }
@@ -153,37 +200,47 @@ function ApplyForm({ busy, run }: { busy: boolean; run: Run }) {
 
   return (
     <Panel title={c.applyTitle}>
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-end gap-3">
-          <Field label={c.code} value={code} onChange={setCode} />
-          <Button label={c.randomCode} onClick={() => setCode(randomRefCode())} disabled={busy} />
-          <Field label={c.label} value={label} onChange={setLabel} />
-          <Button
-            label={busy ? c.signing : c.applySubmit}
-            onClick={() => void run({ action: 'apply', code: normalized, label: label.trim() })}
-            disabled={busy || !inviteUrl}
-          />
+      <div className="flex flex-col gap-4">
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+          <Field label={c.code} value={code} onChange={setCode} inputMode="text" />
+          <Button label={c.randomCode} variant="ghost" onClick={() => setCode(randomRefCode())} disabled={busy} className="h-11" />
         </div>
-        {inviteUrl && (
-          <div className="flex flex-col gap-2 rounded-input border border-border-subtle bg-bg-subtle px-3 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-label uppercase text-text-tertiary">{c.url}</span>
-              <span className={`text-note ${live ? 'text-brand' : 'text-text-secondary'}`}>
+        <p className="-mt-2 text-label text-text-quiet">{c.codeHint}</p>
+        <Field label={c.label} value={label} onChange={setLabel} inputMode="text" />
+
+        <div className="flex flex-col gap-2 rounded-input border border-border-subtle bg-bg-subtle px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-label uppercase text-text-tertiary">{c.url}</span>
+            {inviteUrl && (
+              <span className={`rounded-pill border px-2 py-0.5 text-label ${live ? 'border-brand/40 bg-brand/10 text-brand' : 'border-border-subtle text-text-tertiary'}`}>
                 {live ? c.linkLive : c.linkPending}
               </span>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <code className="min-w-0 flex-1 break-all font-mono text-note">{inviteUrl}</code>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <code className={`min-w-0 flex-1 break-all font-mono text-note ${inviteUrl ? 'text-text-primary' : 'text-text-quiet'}`}>
+              {inviteUrl ?? c.urlPlaceholder}
+            </code>
+            {inviteUrl && (
               <Button
-                label={copied ? c.copied : c.copy} size="sm"
+                label={copied ? c.copied : c.copy} size="sm" variant="ghost"
                 onClick={() => void navigator.clipboard.writeText(inviteUrl).then(() => {
                   setCopied(true)
                   setTimeout(() => setCopied(false), 1500)
                 })}
               />
-            </div>
+            )}
           </div>
-        )}
+        </div>
+
+        {connected ? (
+          <Button
+            label={busy ? c.signing : c.applySubmit}
+            full
+            onClick={() => void run({ action: 'apply', code: normalized, label: label.trim() })}
+            disabled={busy || !inviteUrl}
+          />
+        ) : connectButton}
         <p className="text-note text-text-tertiary">{c.applyNote}</p>
       </div>
     </Panel>
@@ -193,6 +250,7 @@ function ApplyForm({ busy, run }: { busy: boolean; run: Run }) {
 function Applications({ report, admin, busy, run }: { report: Report; admin: boolean; busy: boolean; run: Run }) {
   const c = usePartnersCopy()
   const [reasons, setReasons] = useState<Record<number, string>>({})
+  const [bonuses, setBonuses] = useState<Record<number, string>>({})
   const apps = report.applications
   const title = admin ? c.applications : c.myApplications
   if (apps.length === 0) {
@@ -204,7 +262,7 @@ function Applications({ report, admin, busy, run }: { report: Report; admin: boo
     <Panel title={title}>
       <div className="overflow-x-auto">
         <table className="w-full text-left text-note">
-          <thead className="text-text-tertiary">
+          <thead className="text-label uppercase text-text-tertiary">
             <tr>
               <th className="px-3 py-2">{c.code}</th>
               {admin && <th className="px-3 py-2">{c.partner}</th>}
@@ -214,7 +272,10 @@ function Applications({ report, admin, busy, run }: { report: Report; admin: boo
             </tr>
           </thead>
           <tbody>
-            {apps.map(a => (
+            {apps.map(a => {
+              const bonusInput = bonuses[a.id] ?? '5'
+              const wei = toWei(bonusInput)
+              return (
               <tr key={a.id} className="border-t border-border-subtle">
                 <td className="px-3 py-2 font-mono">{a.code}</td>
                 {admin && <td className="px-3 py-2 font-mono"><AddressLink value={a.partner} /></td>}
@@ -226,9 +287,19 @@ function Applications({ report, admin, busy, run }: { report: Report; admin: boo
                 {admin && a.status === 'pending' && (
                   <td className="px-3 py-2">
                     <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        inputMode="decimal"
+                        aria-label={c.approveBonus}
+                        placeholder={c.approveBonus}
+                        value={bonusInput}
+                        onChange={e => setBonuses({ ...bonuses, [a.id]: e.target.value })}
+                        className="w-24 rounded-input border border-border-subtle bg-bg-subtle px-2 py-1 font-mono text-text-primary"
+                      />
                       <Button
-                        label={c.approveApp} size="sm" disabled={busy}
-                        onClick={() => void run({ action: 'approveApplication', id: a.id })}
+                        label={c.approveApp} size="sm" disabled={busy || wei === undefined}
+                        onClick={() => wei !== undefined && void run({
+                          action: 'approveApplication', id: a.id, bonus: wei,
+                        })}
                       />
                       <input
                         placeholder={c.rejectReason} value={reasons[a.id] ?? ''}
@@ -243,7 +314,8 @@ function Applications({ report, admin, busy, run }: { report: Report; admin: boo
                   </td>
                 )}
               </tr>
-            ))}
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -261,7 +333,7 @@ function Links({ report, admin, busy, run }: { report: Report; admin: boolean; b
     <Panel title={c.links}>
       <div className="overflow-x-auto">
         <table className="w-full text-left text-note">
-          <thead className="text-text-tertiary">
+          <thead className="text-label uppercase text-text-tertiary">
             <tr>
               <th className="px-3 py-2">{c.code}</th>
               {admin && <th className="px-3 py-2">{c.partner}</th>}
@@ -352,7 +424,7 @@ function Balances({ report }: { report: Report }) {
     <Panel title={c.partners}>
       <div className="overflow-x-auto">
         <table className="w-full text-left text-note">
-          <thead className="text-text-tertiary">
+          <thead className="text-label uppercase text-text-tertiary">
             <tr>
               <th className="px-3 py-2">{c.partner}</th>
               <th className="px-3 py-2">{c.accrued}</th>

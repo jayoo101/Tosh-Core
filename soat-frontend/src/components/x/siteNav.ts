@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react'
-import { FilePlus, Store } from 'lucide-react'
+import { FilePlus, Gift, Store } from 'lucide-react'
 
 import { OuroborosMark } from '@/components/ouroboros/OuroborosMark'
 import type { Dictionary } from '@/i18n'
@@ -20,6 +20,7 @@ export interface NavItem {
 export function siteNav(t: Dictionary): NavItem[] {
   return [
     { href: '/ouroboros', label: t.x.navOuroboros, icon: OuroborosMark,  exact: false },
+    { href: '/rewards',   label: t.x.navRewards,   icon: Gift,           exact: false },
     { href: '/',          label: t.x.navHome,      icon: Store,          exact: true },
     { href: '/apply',     label: t.site.navApply,  icon: FilePlus,       exact: false },
   ]

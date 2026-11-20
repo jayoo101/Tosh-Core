@@ -56,8 +56,8 @@ export type RefAction =
   | { action: 'view' }
   /** Public: wallet applies for a partner code; payout address is the signer. */
   | { action: 'apply'; code: string; label: string }
-  /** Admin: activate a pending application with the season reward. */
-  | { action: 'approveApplication'; id: number }
+  /** Admin: activate a pending application; `bonus` is USDT wei per full Agent ID. */
+  | { action: 'approveApplication'; id: number; bonus: string }
   | { action: 'rejectApplication'; id: number; reason: string }
   /** `bonus` is USDT wei, a decimal string. */
   | { action: 'createLink'; code: string; partner: string; label: string; bonus: string }

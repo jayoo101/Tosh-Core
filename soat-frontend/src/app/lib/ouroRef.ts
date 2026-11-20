@@ -14,7 +14,7 @@ import { assertServerChain, serverPublicClient } from '@/app/lib/serverRpc'
 import { getSupabaseAdmin } from '@/app/lib/supabaseAdmin'
 import { OURO_REF_PAYER, OURO_TREASURY, OURO_USDT } from '@/lib/ouroboros/config'
 import {
-  isRefCode, MAX_REF_BONUS_WEI, REF_SIG_TTL_MS, refMessage, SEASON_REF_BONUS_WEI, type RefAction,
+  isRefCode, MAX_REF_BONUS_WEI, REF_SIG_TTL_MS, refMessage, type RefAction,
 } from '@/lib/ouroboros/ref'
 
 const SAFE_ABI = parseAbi(['function isOwner(address owner) view returns (bool)'])
@@ -57,7 +57,7 @@ export function parseRefAction(v: unknown): RefAction {
       if (typeof r.id !== 'number' || !Number.isInteger(r.id) || r.id < 1) {
         throw new RefError(422, 'id must be a positive integer')
       }
-      return { action: 'approveApplication', id: r.id }
+      return { action: 'approveApplication', id: r.id, bonus: bonus(r.bonus) }
     }
     case 'rejectApplication': {
       if (typeof r.id !== 'number' || !Number.isInteger(r.id) || r.id < 1) {
@@ -264,7 +264,7 @@ export async function applyForLink(r: Extract<RefAction, { action: 'apply' }>, b
   check(error, 'application')
 }
 
-/** Approves a pending application and opens the link at the season reward. */
+/** Approves a pending application and opens the link at the signed bonus. */
 export async function approveApplication(r: Extract<RefAction, { action: 'approveApplication' }>, by: Address) {
   const { data, error } = await db().from('ouro_ref_applications')
     .select('id, code, partner, label, status')
@@ -274,7 +274,7 @@ export async function approveApplication(r: Extract<RefAction, { action: 'approv
   const row = data as { id: number; code: string; partner: string; label: string; status: string }
   if (row.status !== 'pending') throw new RefError(409, `application ${r.id} is ${row.status}`)
   await createLink(
-    { action: 'createLink', code: row.code, partner: row.partner, label: row.label, bonus: SEASON_REF_BONUS_WEI },
+    { action: 'createLink', code: row.code, partner: row.partner, label: row.label, bonus: r.bonus },
     by,
   )
   const { error: updErr } = await db().from('ouro_ref_applications').update({

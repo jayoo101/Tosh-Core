@@ -37,11 +37,12 @@ describe('referral requests', () => {
     expect(parseRefAction({ action: 'list', code: 'abc' })).toEqual({ action: 'list' })
     expect(parseRefAction({ action: 'apply', code: 'alice01', label: 'Alice' }))
       .toEqual({ action: 'apply', code: 'alice01', label: 'Alice' })
-    expect(parseRefAction({ action: 'approveApplication', id: 3 }))
-      .toEqual({ action: 'approveApplication', id: 3 })
+    expect(parseRefAction({ action: 'approveApplication', id: 3, bonus: '5000000000000000000' }))
+      .toEqual({ action: 'approveApplication', id: 3, bonus: '5000000000000000000' })
     expect(parseRefAction({ action: 'rejectApplication', id: 3, reason: 'dup' }))
       .toEqual({ action: 'rejectApplication', id: 3, reason: 'dup' })
-    expect(() => parseRefAction({ action: 'approveApplication', id: 0 })).toThrow(RefError)
+    expect(() => parseRefAction({ action: 'approveApplication', id: 0, bonus: '1' })).toThrow(RefError)
+    expect(() => parseRefAction({ action: 'approveApplication', id: 3 })).toThrow(RefError)
   })
 
   it('accepts the signer of the exact request', async () => {

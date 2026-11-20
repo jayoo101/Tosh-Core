@@ -10,7 +10,7 @@ const ZH = {
   homeKicker: 'Agent ID 公平铸造',
   homeLede: '只有持有币安 Agent ID 的钱包可以铸造，每个 Agent ID 最多 30 份。L1 募得的 USDT 中 80% 用于建池，LP 永久锁定。',
   homeCta: '进入衔尾蛇',
-  homePartners: '合作伙伴计划',
+  homePartners: '邀请奖励大赛',
   facts: [
     ['总量', '210 亿枚'],
     ['L1 每份', '0.9 USDT'],
@@ -170,21 +170,6 @@ const ZH = {
   agentEarlyApprove: '授权 approve 可以提前发送。',
   refCode: '邀请码',
   agentMintSummary: `先授权 USDT，再铸造；用 ${NATIVE_SYMBOL} 支付时只需一步，多付的 ${NATIVE_SYMBOL} 会退回。`,
-  inviteTitle: '邀请赛报名',
-  inviteNote: '自选或随机邀请码，签名申请后等审核。通过前也可先复制链接分享；审核通过后链接才会计奖（本季每打满一个 Agent ID 奖 5 USDT）。',
-  inviteLabel: '备注',
-  inviteRandom: '随机生成',
-  inviteApply: '签名申请',
-  inviteApplying: '等待签名…',
-  inviteConnect: '连接钱包后申请',
-  inviteUrl: '邀请链接',
-  inviteCopy: '复制链接',
-  inviteCopied: '已复制',
-  invitePending: '待审核 · 链接可分享，通过前不计奖',
-  inviteLive: '已通过审核 · 链接有效',
-  inviteRejected: '已拒绝',
-  inviteApplied: '已提交申请',
-  inviteCheck: '查询审核状态',
 }
 
 type Copy = typeof ZH
@@ -196,7 +181,7 @@ const EN: Copy = {
   homeKicker: 'Agent ID fair mint',
   homeLede: 'Only wallets holding a Binance Agent ID can mint, at most 30 shares per Agent ID. 80% of the USDT raised in L1 seeds the pool, and the LP is locked forever.',
   homeCta: 'Enter Ouroboros',
-  homePartners: 'Partner programme',
+  homePartners: 'Invite Rewards Contest',
   facts: [
     ['Supply', '21B tokens'],
     ['L1 per share', '0.9 USDT'],
@@ -356,21 +341,6 @@ const EN: Copy = {
   agentEarlyApprove: ' The approve may be sent at any time.',
   refCode: 'Referral code',
   agentMintSummary: `Approve USDT, then mint. Paying in ${NATIVE_SYMBOL} is one step; any excess ${NATIVE_SYMBOL} is refunded.`,
-  inviteTitle: 'Invite contest',
-  inviteNote: 'Pick or randomise a code, sign to apply, then wait for review. You can copy the link before approval; rewards only count after it is live (5 USDT per full Agent ID this season).',
-  inviteLabel: 'Label',
-  inviteRandom: 'Random',
-  inviteApply: 'Sign to apply',
-  inviteApplying: 'Waiting for signature…',
-  inviteConnect: 'Connect wallet to apply',
-  inviteUrl: 'Invite link',
-  inviteCopy: 'Copy link',
-  inviteCopied: 'Copied',
-  invitePending: 'Pending review · shareable, no rewards yet',
-  inviteLive: 'Approved · link is live',
-  inviteRejected: 'Rejected',
-  inviteApplied: 'Application submitted',
-  inviteCheck: 'Check review status',
 }
 
 export function useOuroCopy(): Copy {

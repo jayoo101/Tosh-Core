@@ -16,7 +16,6 @@ import { AgentPanel } from './AgentPanel'
 import { BidBookPanel, Field } from './BidBookPanel'
 import { ClaimPanel } from './ClaimPanel'
 import { useOuroCopy } from './copy'
-import { InviteContestPanel } from './InviteContestPanel'
 import { fmtCompact, fmtPrice, openingPrice, parseAmount, poolPrice } from './fmt'
 import { LadderTable } from './LadderTable'
 import { Leaderboards } from './Leaderboards'
@@ -103,9 +102,6 @@ function Live() {
       {!state.launched && phase && phase !== 'Failed' && (
         <Panel title={c.bookTitle}>
           <p className="text-note text-text-secondary">{c.bookSoon}</p>
-          <div className="mt-4">
-            <InviteContestPanel />
-          </div>
         </Panel>
       )}
 
