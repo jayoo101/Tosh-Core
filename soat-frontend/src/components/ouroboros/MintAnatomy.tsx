@@ -7,7 +7,7 @@ import { cn } from '@/components/ui'
 
 import { useOuroCopy } from './copy'
 
-const SHARE_OPTIONS = [1, 5, 10, 30] as const
+const SHARES = 1
 
 const TIER_OPTIONS = [
   { tag: 'T1', price: 1.2 },
@@ -22,7 +22,6 @@ function fmtMoney(n: number): string {
 
 export function MintAnatomy() {
   const c = useOuroCopy()
-  const [shares, setShares] = useState<number>(10)
   const [tierIdx, setTierIdx] = useState<number>(0)
   const [stage, setStage] = useState<number>(0)
 
@@ -34,7 +33,7 @@ export function MintAnatomy() {
   }, [])
 
   const unitPrice = TIER_OPTIONS[tierIdx].price
-  const totalPay = shares * unitPrice
+  const totalPay = SHARES * unitPrice
   const toPool = totalPay * 0.8
   const toTreasury = totalPay * 0.2
   const userValue = totalPay * 1.01
@@ -51,23 +50,9 @@ export function MintAnatomy() {
       <div className="flex flex-wrap items-center justify-between gap-6 border-y border-border-subtle py-5">
         <div className="flex flex-wrap items-center gap-3">
           <span className="font-mono text-label uppercase text-text-tertiary">{c.anatomySharesLabel}</span>
-          <div className="flex gap-1.5">
-            {SHARE_OPTIONS.map(n => (
-              <button
-                key={n}
-                type="button"
-                onClick={() => setShares(n)}
-                className={cn(
-                  'rounded-pill border px-3.5 py-1.5 font-mono text-note font-bold transition-colors',
-                  shares === n
-                    ? 'border-brand bg-brand text-bg-base'
-                    : 'border-border-subtle text-text-secondary hover:border-border-strong hover:text-text-primary',
-                )}
-              >
-                {n}{c.anatomyShareUnit ? ` ${c.anatomyShareUnit}` : ''}
-              </button>
-            ))}
-          </div>
+          <span className="rounded-pill border border-brand bg-brand px-3.5 py-1.5 font-mono text-note font-bold text-bg-base">
+            {SHARES}{c.anatomyShareUnit ? ` ${c.anatomyShareUnit}` : ''}
+          </span>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
