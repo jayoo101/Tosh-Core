@@ -403,10 +403,15 @@ jobs:
       #
       # 344 -> 350: v3.1 launch, mint and vesting panels; monitor v3.1 checks and
       # keeper upkeep, counted as collected once both lines met.
+      #
+      # 350 -> 372: invite-contest qualification — window edges, a 30-share fill,
+      # historical mints, unapproved codes, binding time, self-invite, the 6000
+      # cap, disqualification rollover, holds, settlement allocation, and the
+      # public rule text.
       - name: Assert the frontend suite did not silently shrink
         run: |
           set -euo pipefail
-          floor=350
+          floor=372
 
           # vitest's summary reads `Tests  169 passed (169)`, and on a red run
           # `Tests  1 failed | 168 passed (169)`. The parenthesised total is the
