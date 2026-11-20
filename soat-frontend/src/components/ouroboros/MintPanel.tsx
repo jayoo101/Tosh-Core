@@ -39,7 +39,9 @@ export function MintPanel({ state, user, address, onDone, embedded = false }: {
   const soldLeft = isL2 ? Number(L2_TOTAL_SHARES - state.l2Minted) : MAX_SHARES
   const poolCap = isL2 ? l2PoolCap(state) : MAX_SHARES
   const max = Math.max(0, Math.min(MAX_SHARES, user.remaining, soldLeft, poolCap))
-  const n = Math.min(Math.max(shares, 1), Math.max(max, 1))
+  // A wallet with no quota can still pick shares to see the cost; minting stays blocked on `max`.
+  const pickMax = max > 0 ? max : Math.max(0, Math.min(MAX_SHARES, soldLeft, poolCap))
+  const n = Math.min(Math.max(shares, 1), Math.max(pickMax, 1))
 
   const { data: l2Quote } = useReadContract({
     address: OURO_MINT,
@@ -108,7 +110,7 @@ export function MintPanel({ state, user, address, onDone, embedded = false }: {
   const content = (
     <div className="flex flex-col gap-4">
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-        <SharesInput label={c.shares} value={n} max={max} onChange={setShares} />
+        <SharesInput label={c.shares} value={n} max={pickMax} onChange={setShares} />
         <PayToggle label={c.payWith} bnb={payBnb} onChange={setPayBnb} />
       </div>
 
