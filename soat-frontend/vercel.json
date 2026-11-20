@@ -14,7 +14,7 @@
     },
     {
       "path": "/api/ouroboros/ref/autopay",
-      "schedule": "0 * * * *"
+      "schedule": "* * * * *"
     },
     {
       "path": "/api/monitor",

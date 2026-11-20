@@ -1,5 +1,5 @@
 /**
- * Automatic partner rebate payouts, run hourly by `/api/ouroboros/ref/autopay`.
+ * Automatic partner rebate payouts, run every minute by `/api/ouroboros/ref/autopay`.
  *
  * The payer is a hot wallet (`OURO_REF_PAYER_KEY`, address
  * `NEXT_PUBLIC_OURO_REF_PAYER`) topped up from the treasury; what it can lose
