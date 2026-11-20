@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { ArrowDown, ArrowRight, Cpu, Lock, ShieldCheck, Sparkles, Wallet } from 'lucide-react'
+import { ArrowDown, ArrowRight, Cpu, Lock, ShieldCheck, Sparkles } from 'lucide-react'
 
 import { Badge, cn } from '@/components/ui'
 import { ACTIVE_CHAIN_LABEL } from '@/lib/chain'
@@ -157,39 +157,30 @@ export function OuroborosHome() {
           <p className="text-body text-text-tertiary">{c.howSubtitle}</p>
         </div>
 
-        <div className="grid gap-5 md:grid-cols-2">
-          {c.howPaths.map((path, idx) => {
-            const Icon = idx === 0 ? Wallet : Cpu
-            const href = idx === 0 ? '/' : '/?mode=agent'
-            return (
-              <div
-                key={path.title}
-                className="flex flex-col justify-between gap-6 rounded-panel border border-border-subtle bg-surface-card/70 p-6 md:p-8 transition-colors hover:border-brand/45"
-              >
-                <div className="flex flex-col gap-3">
-                  <span className="inline-flex w-fit items-center gap-2 font-mono text-label uppercase text-brand">
-                    <Icon className="size-4" aria-hidden />
-                    {path.badge}
-                  </span>
-                  <h3 className="text-title text-text-primary">{path.title}</h3>
-                  <p className="text-body text-text-secondary">{path.desc}</p>
-                </div>
-
-                <Link
-                  href={href}
-                  className={cn(
-                    'inline-flex w-fit items-center gap-2 rounded-pill px-6 py-3 font-mono text-note font-bold transition-colors',
-                    idx === 0
-                      ? 'bg-brand text-bg-base hover:bg-brand-hover'
-                      : 'border border-brand/45 bg-brand/10 text-brand hover:bg-brand hover:text-bg-base',
-                  )}
-                >
-                  {path.cta}
-                  <ArrowRight className="size-4" aria-hidden />
-                </Link>
+        <div className="grid max-w-2xl gap-5">
+          {c.howPaths.map(path => (
+            <div
+              key={path.title}
+              className="flex flex-col justify-between gap-6 rounded-panel border border-border-subtle bg-surface-card/70 p-6 md:p-8 transition-colors hover:border-brand/45"
+            >
+              <div className="flex flex-col gap-3">
+                <span className="inline-flex w-fit items-center gap-2 font-mono text-label uppercase text-brand">
+                  <Cpu className="size-4" aria-hidden />
+                  {path.badge}
+                </span>
+                <h3 className="text-title text-text-primary">{path.title}</h3>
+                <p className="text-body text-text-secondary">{path.desc}</p>
               </div>
-            )
-          })}
+
+              <Link
+                href="/"
+                className="inline-flex w-fit items-center gap-2 rounded-pill bg-brand px-6 py-3 font-mono text-note font-bold text-bg-base transition-colors hover:bg-brand-hover"
+              >
+                {path.cta}
+                <ArrowRight className="size-4" aria-hidden />
+              </Link>
+            </div>
+          ))}
         </div>
       </section>
 

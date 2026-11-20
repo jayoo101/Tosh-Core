@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useSyncExternalStore, type ComponentType } from 'react'
+import { useState, type ComponentType } from 'react'
 import {
   BarChart3,
   BookOpen,
@@ -9,7 +9,6 @@ import {
   Flame,
   ShieldAlert,
   Trophy,
-  Wallet,
   Zap,
 } from 'lucide-react'
 import type { Address } from 'viem'
@@ -39,19 +38,13 @@ import { fmtCompact, fmtPrice, openingPrice, parseAmount, poolPrice } from './fm
 import { LadderTable } from './LadderTable'
 import { Leaderboards } from './Leaderboards'
 import { MintAnatomy } from './MintAnatomy'
-import { MintPanel } from './MintPanel'
 import { OuroborosMark } from './OuroborosMark'
 import { FlywheelMini } from './PriceFlywheel'
 import { useOuroState, useOuroUser, type OuroState } from './useOuro'
 import { useOuroRef } from './useOuroRef'
 
 const ORDER: Phase[] = ['L1', 'AwaitLaunch', 'L1_5', 'L2']
-type MintMode = 'wallet' | 'agent'
 type ExplorerTab = 'anatomy' | 'ladder' | 'book' | 'boards' | 'contracts'
-
-const noopSubscribe = () => () => {}
-const readUrlMode = (): MintMode =>
-  new URLSearchParams(window.location.search).get('mode') === 'agent' ? 'agent' : 'wallet'
 
 const L2_SCHEDULE_SEC = Math.floor(Date.UTC(2026, 10, 20, 12, 0, 0) / 1000)
 
@@ -192,14 +185,9 @@ function Live() {
   const { address, user, refetch: refetchUser } = useOuroUser()
   const refresh = () => { void refetch(); void refetchUser() }
 
-  const urlMode = useSyncExternalStore(noopSubscribe, readUrlMode, (): MintMode => 'wallet')
-  const [pickedMode, setPickedMode] = useState<MintMode | null>(null)
-  const mintMode = pickedMode ?? urlMode
-  const setMintMode = (m: MintMode) => setPickedMode(m)
   const [explorerTab, setExplorerTab] = useState<ExplorerTab>('anatomy')
 
   const phase = state.phase
-  const minting = phase === 'L1' || phase === 'L2'
   const inL15 = phase === 'L1_5'
   const pool = poolPrice(state.reserveUsdt, state.reserveToken)
   const { data: terms } = useReadContract({
@@ -274,38 +262,10 @@ function Live() {
           {phase !== 'Failed' && (
             <section className="glow-frame flex flex-col gap-6 rounded-panel bg-surface-card/85 p-6 md:p-8">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle pb-5">
-                <div role="tablist" aria-label={c.mintTitle} className="grid w-full grid-cols-2 gap-1.5 rounded-input bg-bg-subtle p-1 sm:w-auto">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={mintMode === 'wallet'}
-                    onClick={() => setMintMode('wallet')}
-                    className={cn(
-                      'inline-flex items-center justify-center gap-2 rounded-input px-4 py-2 font-mono text-note font-bold transition-colors',
-                      mintMode === 'wallet'
-                        ? 'bg-brand text-bg-base'
-                        : 'text-text-tertiary hover:text-text-primary',
-                    )}
-                  >
-                    <Wallet className="size-3.5" aria-hidden />
-                    {c.modeWalletTab}
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={mintMode === 'agent'}
-                    onClick={() => setMintMode('agent')}
-                    className={cn(
-                      'inline-flex items-center justify-center gap-2 rounded-input px-4 py-2 font-mono text-note font-bold transition-colors',
-                      mintMode === 'agent'
-                        ? 'bg-brand text-bg-base'
-                        : 'text-text-tertiary hover:text-text-primary',
-                    )}
-                  >
-                    <Cpu className="size-3.5" aria-hidden />
-                    {c.modeAgentTab}
-                  </button>
-                </div>
+                <span className="inline-flex items-center gap-2 font-mono text-note font-bold text-brand">
+                  <Cpu className="size-3.5" aria-hidden />
+                  {c.modeAgentTab}
+                </span>
 
                 {phase && (
                   <Badge tone={phase === 'L1' || phase === 'L2' ? 'ok' : 'info'} pip live={phase === 'L1' || phase === 'L2'} size="sm">
@@ -314,15 +274,7 @@ function Live() {
                 )}
               </div>
 
-              {mintMode === 'wallet' ? (
-                minting ? (
-                  <MintPanel state={state} user={user} address={address} onDone={refresh} embedded />
-                ) : (
-                  <NonMintWalletNotice phase={phase} onSwitchAgent={() => setMintMode('agent')} />
-                )
-              ) : (
-                <AgentPanel state={state} onDone={refresh} embedded />
-              )}
+              <AgentPanel state={state} onDone={refresh} embedded />
             </section>
           )}
 
@@ -472,32 +424,6 @@ function Hero({ state }: { state: OuroState }) {
         })}
       </ol>
     </header>
-  )
-}
-
-function NonMintWalletNotice({ phase, onSwitchAgent }: { phase: Phase | undefined; onSwitchAgent: () => void }) {
-  const c = useOuroCopy()
-  if (phase === 'Pending') {
-    return (
-      <div className="flex flex-col gap-5 py-2">
-        <div className="flex flex-col gap-2">
-          <h3 className="text-title text-text-primary">{c.pendingMintTitle}</h3>
-          <p className="text-body text-text-secondary">{c.pendingMintDesc}</p>
-        </div>
-        <Button label={c.pendingGoAgent} onClick={onSwitchAgent} />
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex flex-col gap-2 py-2">
-      <span className="font-mono text-label uppercase text-brand">
-        {phase ? c.phase[phase] : c.mintTitle}
-      </span>
-      <p className="text-body text-text-secondary">
-        {phase === 'L1_5' ? c.tlL15 : phase === 'AwaitLaunch' ? c.tlLaunch : c.tlL2}
-      </p>
-    </div>
   )
 }
 
