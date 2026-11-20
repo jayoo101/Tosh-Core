@@ -13,11 +13,8 @@ import { OURO_BIDBOOK_ABI, OURO_MINT_ABI } from '@/lib/ouroboros/abis'
 import { OURO_BIDBOOK, OURO_MINT, OURO_TOKEN, OURO_USDT } from '@/lib/ouroboros/config'
 
 import { useOuroCopy } from './copy'
-import { Field } from './Field'
 import { fmt, fmtCompact, fmtPrice, parseAmount } from './fmt'
 import type { OuroUser } from './useOuro'
-
-export { Field }
 
 const ONE = 10n ** 18n
 const FEE_BPS = 200n
@@ -77,6 +74,7 @@ function useOpenBids() {
       const body = (await r.json()) as { bids: { bid_id: string }[]; highFill?: string | null }
       return { ids: body.bids.map(b => b.bid_id), highFill: body.highFill ?? null }
     },
+    enabled: !!OURO_BIDBOOK,
     refetchInterval: 15_000,
   })
   const { data: next } = useReadContract({
@@ -84,7 +82,7 @@ function useOpenBids() {
     abi: OURO_BIDBOOK_ABI,
     functionName: 'nextBidId',
     chainId: TARGET_CHAIN_ID,
-    query: { refetchInterval: 8_000 },
+    query: { enabled: !!OURO_BIDBOOK, refetchInterval: 8_000 },
   })
 
   const ids = useMemo(() => {
@@ -103,7 +101,7 @@ function useOpenBids() {
       args: [id],
       chainId: TARGET_CHAIN_ID,
     }) as const),
-    query: { enabled: ids.length > 0, refetchInterval: 8_000 },
+    query: { enabled: ids.length > 0 && !!OURO_BIDBOOK, refetchInterval: 8_000 },
   })
 
   const bids: Bid[] = []
@@ -136,7 +134,7 @@ export function BidBookPanel({ open, user, address, onDone }: {
     abi: OURO_MINT_ABI,
     functionName: 'seedTerms',
     chainId: TARGET_CHAIN_ID,
-    query: { enabled: open, refetchInterval: 30_000 },
+    query: { enabled: open && !!OURO_MINT, refetchInterval: 30_000 },
   })
   const { data: volume } = useReadContracts({
     contracts: [
@@ -149,10 +147,9 @@ export function BidBookPanel({ open, user, address, onDone }: {
   const filledUsdt = volume?.[0]?.status === 'success' ? (volume[0].result as bigint) : 0n
   const depthUsdt = levels.reduce((s, l) => s + l.usdtLeft, 0n)
   const best = levels[0]?.price
+  const [pickedPrice, setPickedPrice] = useState<{ value: string; seq: number } | null>(null)
 
-  if (!open && myBids.length === 0) {
-    return null
-  }
+  if (!open && myBids.length === 0) return null
 
   if (!open) {
     return (
@@ -171,6 +168,10 @@ export function BidBookPanel({ open, user, address, onDone }: {
     [c.bookCount, levels.length.toLocaleString()],
   ]
 
+  const handlePickPrice = (price: bigint) => {
+    setPickedPrice(prev => ({ value: formatUnits(price, 18), seq: (prev?.seq ?? 0) + 1 }))
+  }
+
   return (
     <Panel title={c.bookTitle}>
       <p className="text-note text-text-secondary">{c.bookNote}</p>
@@ -185,7 +186,7 @@ export function BidBookPanel({ open, user, address, onDone }: {
       </dl>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]">
-        <DepthTable levels={levels} />
+        <DepthTable levels={levels} onPickPrice={handlePickPrice} />
         <aside className="flex min-w-0 flex-col gap-4">
           <TradeAside
             bids={bids}
@@ -193,6 +194,7 @@ export function BidBookPanel({ open, user, address, onDone }: {
             user={user}
             address={address}
             l1Floor={l1Floor}
+            pickedPrice={pickedPrice}
             onDone={done}
           />
           <MyBids bids={myBids} onDone={done} empty={address ? c.myBidsNone : c.myBidsConnect} />
@@ -202,12 +204,18 @@ export function BidBookPanel({ open, user, address, onDone }: {
   )
 }
 
-function DepthTable({ levels }: { levels: Level[] }) {
+function DepthTable({ levels, onPickPrice }: { levels: Level[]; onPickPrice: (price: bigint) => void }) {
   const c = useOuroCopy()
+  const shown = levels.slice(0, 20)
+  const maxUsdt = shown.reduce((m, l) => (l.usdtLeft > m ? l.usdtLeft : m), 0n)
+
   return (
     <div className="flex flex-col gap-3 rounded-card border border-border-subtle p-4 md:p-5">
-      <h3 className="text-label uppercase text-text-tertiary">{c.bookDepthTitle}</h3>
-      {levels.length === 0 ? (
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-label uppercase text-text-tertiary">{c.bookDepthTitle}</h3>
+        {shown.length > 0 && <span className="font-mono text-micro text-text-quiet">{c.bookClickFill}</span>}
+      </div>
+      {shown.length === 0 ? (
         <p className="py-8 text-center text-note text-text-tertiary">{c.noBids}</p>
       ) : (
         <table className="w-full border-collapse font-mono text-note tabular-nums">
@@ -219,13 +227,27 @@ function DepthTable({ levels }: { levels: Level[] }) {
             </tr>
           </thead>
           <tbody>
-            {levels.slice(0, 20).map(l => (
-              <tr key={l.price.toString()} className="border-b border-border-subtle last:border-b-0">
-                <td className="py-2 pr-2 text-brand">{fmtPrice(l.price)}</td>
-                <td className="py-2 pr-2 text-right text-text-primary">{fmtCompact(l.tokens)}</td>
-                <td className="py-2 text-right text-text-primary">{fmt(l.usdtLeft, 2)}</td>
-              </tr>
-            ))}
+            {shown.map(l => {
+              const pct = maxUsdt > 0n ? Number((l.usdtLeft * 100n) / maxUsdt) : 0
+              return (
+                <tr
+                  key={l.price.toString()}
+                  onClick={() => onPickPrice(l.price)}
+                  className="group cursor-pointer border-b border-border-subtle transition-colors last:border-b-0 hover:bg-surface-hover/50"
+                >
+                  <td className="relative py-2.5 pr-2 text-brand group-hover:text-brand-hover">
+                    <span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-y-0.5 left-0 rounded-input bg-brand/10"
+                      style={{ width: `${Math.max(4, pct)}%` }}
+                    />
+                    <span className="relative z-10">{fmtPrice(l.price)}</span>
+                  </td>
+                  <td className="py-2.5 pr-2 text-right text-text-primary">{fmtCompact(l.tokens)}</td>
+                  <td className="py-2.5 text-right text-text-primary">{fmt(l.usdtLeft, 2)}</td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       )}
@@ -233,16 +255,26 @@ function DepthTable({ levels }: { levels: Level[] }) {
   )
 }
 
-function TradeAside({ bids, levels, user, address, l1Floor, onDone }: {
+function TradeAside({ bids, levels, user, address, l1Floor, pickedPrice, onDone }: {
   bids: Bid[]
   levels: Level[]
   user: OuroUser
   address: Address | undefined
   l1Floor: bigint | undefined
+  pickedPrice: { value: string; seq: number } | null
   onDone: () => void
 }) {
   const c = useOuroCopy()
-  const [side, setSide] = useState<'sell' | 'bid'>('sell')
+  const [manualSide, setManualSide] = useState<'sell' | 'bid'>('sell')
+  const [seenSeq, setSeenSeq] = useState(0)
+  const pickedJustNow = pickedPrice !== null && pickedPrice.seq !== seenSeq
+  const side: 'sell' | 'bid' = pickedJustNow ? 'bid' : manualSide
+
+  const chooseSide = (next: 'sell' | 'bid') => {
+    setManualSide(next)
+    if (pickedPrice) setSeenSeq(pickedPrice.seq)
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div role="tablist" aria-label={c.bookSideLabel} className="grid grid-cols-2 gap-1 rounded-input bg-surface-hover/70 p-1">
@@ -252,7 +284,7 @@ function TradeAside({ bids, levels, user, address, l1Floor, onDone }: {
             type="button"
             role="tab"
             aria-selected={side === id}
-            onClick={() => setSide(id)}
+            onClick={() => chooseSide(id)}
             className={cn(
               'rounded-input px-2 py-1.5 text-note font-bold transition-colors',
               side === id ? 'bg-brand text-bg-base' : 'text-text-tertiary hover:text-text-primary',
@@ -265,7 +297,14 @@ function TradeAside({ bids, levels, user, address, l1Floor, onDone }: {
       {side === 'sell' ? (
         <SellPanel bids={bids} user={user} address={address} onDone={onDone} />
       ) : (
-        <PlacePanel l1Floor={l1Floor} best={levels[0]?.price} address={address} onDone={onDone} />
+        <PlacePanel
+          key={pickedPrice?.seq ?? 0}
+          l1Floor={l1Floor}
+          best={levels[0]?.price}
+          initialPrice={pickedPrice?.value ?? ''}
+          address={address}
+          onDone={onDone}
+        />
       )}
     </div>
   )
@@ -336,16 +375,17 @@ function SellPanel({ bids, user, address, onDone }: {
   )
 }
 
-function PlacePanel({ l1Floor, best, address, onDone }: {
+function PlacePanel({ l1Floor, best, initialPrice = '', address, onDone }: {
   l1Floor: bigint | undefined
   best: bigint | undefined
+  initialPrice?: string
   address: Address | undefined
   onDone: () => void
 }) {
   const c = useOuroCopy()
   const picker = useWalletPicker()
   const [usdtIn, setUsdtIn] = useState('')
-  const [priceIn, setPriceIn] = useState('')
+  const [priceIn, setPriceIn] = useState(initialPrice)
   const bidUsdt = parseAmount(usdtIn) ?? 0n
   const bidPrice = parseAmount(priceIn) ?? 0n
   const bidApproval = useQuoteApproval(OURO_BIDBOOK, bidUsdt, OURO_USDT!)
@@ -434,3 +474,16 @@ function MyBidRow({ bid, onDone }: { bid: Bid; onDone: () => void }) {
   )
 }
 
+export function Field({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="flex flex-col gap-1.5 text-note text-text-tertiary">
+      {label}
+      <input
+        inputMode="decimal"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="h-11 w-full rounded-input border border-border-subtle bg-bg-subtle px-3 font-mono text-text-primary outline-none focus:border-brand"
+      />
+    </label>
+  )
+}

@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react'
-import { FilePlus, Gift, Store } from 'lucide-react'
+import { BookOpen, FilePlus, Gift } from 'lucide-react'
 
 import { OuroborosMark } from '@/components/ouroboros/OuroborosMark'
 import type { Dictionary } from '@/i18n'
@@ -8,25 +8,21 @@ export interface NavItem {
   href: string
   label: string
   icon: ComponentType<{ className?: string; 'aria-hidden'?: boolean | 'true' | 'false' }>
-  /** `/` would match every route as a prefix. */
   exact: boolean
+  aliases?: readonly string[]
 }
 
-/**
- * One list for the side rail (desktop) and the header links (below `lg`).
- * `/launchpad`, `/launched` and `/market` still serve; they are off the nav
- * while Ouroboros is the lead.
- */
 export function siteNav(t: Dictionary): NavItem[] {
   return [
-    { href: '/ouroboros', label: t.x.navOuroboros, icon: OuroborosMark,  exact: false },
-    { href: '/rewards',   label: t.x.navRewards,   icon: Gift,           exact: false },
-    { href: '/',          label: t.x.navHome,      icon: Store,          exact: true },
-    { href: '/apply',     label: t.site.navApply,  icon: FilePlus,       exact: false },
+    { href: '/',          label: t.x.navHome,      icon: OuroborosMark, exact: true, aliases: ['/ouroboros'] },
+    { href: '/mechanism', label: t.x.navMechanism, icon: BookOpen,      exact: false },
+    { href: '/rewards',   label: t.x.navRewards,   icon: Gift,          exact: false },
+    { href: '/apply',     label: t.site.navApply,  icon: FilePlus,      exact: false },
   ]
 }
 
 export function isActive(item: NavItem, pathname: string | null): boolean {
   if (!pathname) return false
+  if (item.aliases?.some(a => pathname === a || pathname.startsWith(`${a}/`))) return true
   return item.exact ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`)
 }

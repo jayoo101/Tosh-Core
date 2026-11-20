@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { Flame, Layers } from 'lucide-react'
 import { useReadContract } from 'wagmi'
 
 import { Panel, Row } from '@/components/x/Panel'
@@ -18,18 +19,16 @@ import { l2PoolCap, type OuroState, type OuroUser } from './useOuro'
 import { useOuroRef } from './useOuroRef'
 import { PayToggle, SharesInput } from './SharesInput'
 
-/** BNB sent above the quote so a feed tick between read and inclusion does not revert; the excess is refunded. */
 const BNB_BUFFER_BPS = 50n
-/** Pool movement tolerated between quote and inclusion for L2 tokens. */
 const L2_SLIPPAGE_BPS = 100n
-/** Ladder movement tolerated on the L2 price when another mint lands first; only the true cost is pulled. */
 export const L2_MAX_PAY_BPS = 200n
 
-export function MintPanel({ state, user, address, onDone }: {
+export function MintPanel({ state, user, address, onDone, embedded = false }: {
   state: OuroState
   user: OuroUser
   address: string | undefined
   onDone: () => void
+  embedded?: boolean
 }) {
   const c = useOuroCopy()
   const picker = useWalletPicker()
@@ -104,46 +103,76 @@ export function MintPanel({ state, user, address, onDone }: {
   const needsApprove = !payBnb && allowance !== undefined && allowance < cost
   const approvalUnknown = !payBnb && approval.state.kind === 'unknown'
 
-  return (
-    <Panel title={`${c.mintTitle} · ${state.phase ? c.phase[state.phase] : ''}`}>
-      <div className="flex flex-col gap-4">
-        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-          <SharesInput label={c.shares} value={n} max={max} onChange={setShares} />
-          <PayToggle label={c.payWith} bnb={payBnb} onChange={setPayBnb} />
-        </div>
+  const poolAddUsdt = (cost * 80n) / 100n
 
-        <dl className="flex flex-col gap-2 text-note">
-          <Row k={c.remaining} v={address ? `${user.remaining} / ${MAX_SHARES}` : '—'} />
-          <Row k={c.cost} v={`${fmt(cost)} USDT`} strong={!payBnb} />
-          {payBnb && <Row k={c.costBnb} v={bnbQuote === undefined ? '…' : `${fmt(bnbQuote, 6)} ${NATIVE_SYMBOL}`} strong />}
-          {isL2
-            ? <Row k={c.estTokens} v={tokens > 0n ? fmtCompact(tokens) : '…'} />
-            : <Row k={c.estTokens} v={c.l1Tokens} />}
-          {ref.code && <Row k={c.refCode} v={ref.code} />}
-        </dl>
+  const content = (
+    <div className="flex flex-col gap-4">
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <SharesInput label={c.shares} value={n} max={max} onChange={setShares} />
+        <PayToggle label={c.payWith} bnb={payBnb} onChange={setPayBnb} />
+      </div>
 
-        <p className="text-note text-text-tertiary">{c.perId}{isL2 ? ` · ${c.poolCapNote} · ${c.vestNote}` : ''}</p>
+      <dl className="flex flex-col gap-2 rounded-card border border-border-subtle bg-bg-subtle/60 p-4 text-note">
+        <Row k={c.remaining} v={address ? `${user.remaining} / ${MAX_SHARES}` : '—'} />
+        <Row k={c.cost} v={`${fmt(cost)} USDT`} strong={!payBnb} />
+        {payBnb && <Row k={c.costBnb} v={bnbQuote === undefined ? '…' : `${fmt(bnbQuote, 6)} ${NATIVE_SYMBOL}`} strong />}
+        {isL2
+          ? <Row k={c.estTokens} v={tokens > 0n ? fmtCompact(tokens) : '…'} />
+          : <Row k={c.estTokens} v={c.l1Tokens} />}
+        {ref.code && <Row k={c.refCode} v={ref.code} />}
+      </dl>
 
-        {!address ? (
-          <Button label={c.connect} full onClick={() => picker?.open()} />
-        ) : blocked ? (
-          <Button label={blocked} full disabled reason={blocked} />
-        ) : needsApprove ? (
-          <Button
-            label={c.approve}
-            full
-            onClick={approval.approve}
-            disabled={approval.tx.isBusy}
-          />
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle pt-3 text-note">
+        {isL2 ? (
+          <>
+            <span className="inline-flex items-center gap-1.5 font-mono text-success">
+              <Layers className="size-3.5" aria-hidden />
+              {c.mintImpactL2Pool} +{fmt(poolAddUsdt, 2)} U
+            </span>
+            <span className="inline-flex items-center gap-1.5 font-mono text-warning">
+              <Flame className="size-3.5" aria-hidden />
+              {c.mintImpactL2Burn} {tokens > 0n ? `-${fmtCompact(tokens)}` : '…'}
+            </span>
+          </>
         ) : (
-          <Button
-            label={`${c.mint} ${n}`}
-            full
-            onClick={send}
-            disabled={tx.isBusy || approvalUnknown || (payBnb && bnbValue === undefined) || (isL2 && tokens === 0n)}
-          />
+          <>
+            <span className="inline-flex items-center gap-1.5 font-mono text-success">
+              <Layers className="size-3.5" aria-hidden />
+              {c.mintImpactL1Pool} +{fmt(poolAddUsdt, 2)} U
+            </span>
+            <span className="font-mono text-brand">{c.mintImpactL1Edge} -25%</span>
+          </>
         )}
       </div>
+
+      <p className="text-note text-text-tertiary">{c.perId}{isL2 ? ` · ${c.poolCapNote} · ${c.vestNote}` : ''}</p>
+
+      {!address ? (
+        <Button label={c.connect} full onClick={() => picker?.open()} />
+      ) : blocked ? (
+        <Button label={blocked} full disabled reason={blocked} />
+      ) : needsApprove ? (
+        <Button
+          label={c.approve}
+          full
+          onClick={approval.approve}
+          disabled={approval.tx.isBusy}
+        />
+      ) : (
+        <Button
+          label={`${c.mint} ${n}`}
+          full
+          onClick={send}
+          disabled={tx.isBusy || approvalUnknown || (payBnb && bnbValue === undefined) || (isL2 && tokens === 0n)}
+        />
+      )}
+    </div>
+  )
+
+  if (embedded) return content
+  return (
+    <Panel title={`${c.mintTitle} · ${state.phase ? c.phase[state.phase] : ''}`}>
+      {content}
     </Panel>
   )
 }

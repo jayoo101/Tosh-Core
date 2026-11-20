@@ -1151,13 +1151,194 @@ select:focus {
   color: transparent;
 }
 
+@keyframes ouro-orbit-cw {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes ouro-orbit-ccw {
+  from { transform: rotate(360deg); }
+  to   { transform: rotate(0deg); }
+}
+
+@keyframes ouro-dash-flow {
+  from { stroke-dashoffset: 48; }
+  to   { stroke-dashoffset: 0; }
+}
+
+@keyframes ouro-pulse-ring {
+  0%   { transform: scale(0.92); opacity: 0.7; }
+  70%  { transform: scale(1.16); opacity: 0; }
+  100% { transform: scale(1.16); opacity: 0; }
+}
+
+@keyframes ouro-float {
+  0%, 100% { transform: translateY(0px); }
+  50%      { transform: translateY(-5px); }
+}
+
+@keyframes ouro-burn-glow {
+  0%, 100% {
+    box-shadow: 0 0 12px -2px rgb(255 138 61 / 0.35);
+    opacity: 0.92;
+  }
+  50% {
+    box-shadow: 0 0 22px 0 rgb(255 138 61 / 0.65);
+    opacity: 1;
+  }
+}
+
+@keyframes ouro-bar-sheen {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(220%); }
+}
+
+@keyframes ouro-rise-beam {
+  0%   { transform: translateY(100%); opacity: 0; }
+  35%  { opacity: 0.85; }
+  100% { transform: translateY(-120%); opacity: 0; }
+}
+
+@keyframes ouro-step-bar {
+  0%, 100% { opacity: 0.38; }
+  45%      { opacity: 1; }
+}
+
+@keyframes ouro-drop-in {
+  0%   { transform: translateY(-10px); opacity: 0; }
+  25%  { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { transform: translateY(22px); opacity: 0; }
+}
+
+@keyframes ouro-ember-up {
+  0%   { transform: translateY(6px) scale(1); opacity: 0; }
+  25%  { opacity: 0.95; }
+  100% { transform: translateY(-22px) scale(0.45); opacity: 0; }
+}
+
+@keyframes ouro-wave-shift {
+  0%, 100% { transform: translateX(0px); }
+  50%      { transform: translateX(-8px); }
+}
+
+.ouro-step-1 { animation: ouro-step-bar 2.5s ease-in-out 0s infinite; }
+.ouro-step-2 { animation: ouro-step-bar 2.5s ease-in-out 0.35s infinite; }
+.ouro-step-3 { animation: ouro-step-bar 2.5s ease-in-out 0.7s infinite; }
+.ouro-step-4 { animation: ouro-step-bar 2.5s ease-in-out 1.05s infinite; }
+.ouro-step-5 { animation: ouro-step-bar 2.5s ease-in-out 1.4s infinite; }
+
+.ouro-drop-1 { animation: ouro-drop-in 1.9s ease-in 0s infinite; }
+.ouro-drop-2 { animation: ouro-drop-in 1.9s ease-in 0.65s infinite; }
+.ouro-drop-3 { animation: ouro-drop-in 1.9s ease-in 1.3s infinite; }
+
+.ouro-ember-1 { animation: ouro-ember-up 2.1s ease-out 0s infinite; }
+.ouro-ember-2 { animation: ouro-ember-up 2.1s ease-out 0.55s infinite; }
+.ouro-ember-3 { animation: ouro-ember-up 2.1s ease-out 1.1s infinite; }
+.ouro-ember-4 { animation: ouro-ember-up 2.1s ease-out 1.6s infinite; }
+
+.ouro-wave { animation: ouro-wave-shift 3.2s ease-in-out infinite; }
+
+.ouro-cta-shine {
+  position: relative;
+  overflow: hidden;
+}
+
+.ouro-cta-shine::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -40%;
+  width: 36%;
+  transform: skewX(-20deg);
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.35), transparent);
+  animation: ouro-bar-sheen 3.4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.ouro-orbit-cw {
+  animation: ouro-orbit-cw 28s linear infinite;
+}
+
+.ouro-orbit-ccw {
+  animation: ouro-orbit-ccw 22s linear infinite;
+}
+
+.ouro-dash-flow {
+  stroke-dasharray: 6 6;
+  animation: ouro-dash-flow 1.8s linear infinite;
+}
+
+.ouro-pulse-ring {
+  animation: ouro-pulse-ring 2.2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.ouro-float {
+  animation: ouro-float 4.2s ease-in-out infinite;
+}
+
+.ouro-float-delay {
+  animation: ouro-float 4.2s ease-in-out -1.4s infinite;
+}
+
+.ouro-float-delay-2 {
+  animation: ouro-float 4.2s ease-in-out -2.8s infinite;
+}
+
+.ouro-burn-glow {
+  animation: ouro-burn-glow 2s ease-in-out infinite;
+}
+
+.ouro-bar-sheen {
+  position: relative;
+  overflow: hidden;
+}
+
+.ouro-bar-sheen::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.28), transparent);
+  animation: ouro-bar-sheen 2.6s ease-in-out infinite;
+}
+
+.ouro-rise-beam {
+  animation: ouro-rise-beam 2.4s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .glow-flow::before,
   .glow-flow::after,
   .toshx-grid::before,
   .toshx-grid::after,
   .hero-grid::before,
-  .hero-grid::after {
+  .hero-grid::after,
+  .ouro-orbit-cw,
+  .ouro-orbit-ccw,
+  .ouro-dash-flow,
+  .ouro-pulse-ring,
+  .ouro-float,
+  .ouro-float-delay,
+  .ouro-float-delay-2,
+  .ouro-burn-glow,
+  .ouro-bar-sheen::after,
+  .ouro-rise-beam,
+  .ouro-step-1,
+  .ouro-step-2,
+  .ouro-step-3,
+  .ouro-step-4,
+  .ouro-step-5,
+  .ouro-drop-1,
+  .ouro-drop-2,
+  .ouro-drop-3,
+  .ouro-ember-1,
+  .ouro-ember-2,
+  .ouro-ember-3,
+  .ouro-ember-4,
+  .ouro-wave,
+  .ouro-cta-shine::after {
     animation: none !important;
   }
   .rail-glider { transition: none; }

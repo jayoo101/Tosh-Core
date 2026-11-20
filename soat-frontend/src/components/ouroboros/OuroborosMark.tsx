@@ -46,3 +46,51 @@ export function OuroborosMark({ className }: { className?: string; 'aria-hidden'
     </svg>
   )
 }
+
+export function OuroborosOrbit({ badges, className }: { badges?: readonly string[]; className?: string }) {
+  return (
+    <div className={cn('relative flex aspect-square w-full max-w-[320px] items-center justify-center', className)}>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-4 rounded-pill bg-brand/10 blur-2xl"
+      />
+
+      <svg
+        viewBox="0 0 240 240"
+        className="ouro-orbit-cw pointer-events-none absolute inset-0 size-full text-brand/35"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <circle cx="120" cy="120" r="108" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="4 8" />
+        <circle cx="120" cy="12" r="3" fill="currentColor" />
+        <circle cx="228" cy="120" r="2.5" fill="currentColor" opacity="0.7" />
+        <circle cx="12" cy="120" r="2.5" fill="currentColor" opacity="0.7" />
+      </svg>
+
+      <svg
+        viewBox="0 0 240 240"
+        className="ouro-orbit-ccw pointer-events-none absolute inset-5 size-[calc(100%-2.5rem)] text-warning/45"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <circle cx="120" cy="120" r="96" fill="none" stroke="currentColor" strokeWidth="1.2" strokeDasharray="18 14 4 14" />
+        <circle cx="120" cy="24" r="3.5" fill="currentColor" />
+      </svg>
+
+      <div className="ouro-pulse-ring pointer-events-none absolute inset-12 rounded-pill border border-brand/40" aria-hidden="true" />
+
+      <OuroborosMark className="relative z-10 w-[56%] text-brand drop-shadow-[0_0_32px_var(--tosh-brand)]" />
+
+      {badges && badges[0] && (
+        <span className="ouro-float absolute top-2 right-0 z-20 rounded-pill border border-success/40 bg-bg-base/95 px-3.5 py-1.5 font-mono text-micro font-bold text-success shadow-lift">
+          {badges[0]}
+        </span>
+      )}
+      {badges && badges[1] && (
+        <span className="ouro-float-delay absolute bottom-2 left-0 z-20 rounded-pill border border-warning/45 bg-bg-base/95 px-3.5 py-1.5 font-mono text-micro font-bold text-warning shadow-lift">
+          {badges[1]}
+        </span>
+      )}
+    </div>
+  )
+}

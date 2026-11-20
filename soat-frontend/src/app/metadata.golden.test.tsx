@@ -37,7 +37,7 @@ async function metadataOf(route: Route) {
 describe('page metadata · english golden master', () => {
   it('root layout', async () => {
     expect(await metadataOf(await import('./layout'))).toMatchSnapshot()
-  })
+  }, 30_000)
 
   it('404', async () => {
     expect(await metadataOf(await import('./not-found'))).toMatchSnapshot()

@@ -8,7 +8,8 @@ import { NATIVE_SYMBOL } from '@/lib/chain'
 const stepCls =
   'flex size-11 shrink-0 items-center justify-center text-text-secondary transition-colors hover:bg-surface-hover hover:text-brand disabled:cursor-not-allowed disabled:opacity-30'
 
-/** Shares stepper with a MAX shortcut; `max` is what the wallet may still mint right now. */
+const PRESETS = [1, 5, 10, 30] as const
+
 export function SharesInput({ label, value, max, onChange }: {
   label: string
   value: number
@@ -18,7 +19,7 @@ export function SharesInput({ label, value, max, onChange }: {
   const top = Math.max(max, 1)
   const set = (n: number) => onChange(Math.min(Math.max(Math.floor(n) || 1, 1), top))
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2">
       <span className="text-note text-text-tertiary">{label}</span>
       <div className="flex h-11 items-stretch overflow-hidden rounded-input border border-border-subtle bg-bg-subtle focus-within:border-brand">
         <button type="button" aria-label="-1" className={stepCls} onClick={() => set(value - 1)} disabled={value <= 1}>
@@ -40,6 +41,28 @@ export function SharesInput({ label, value, max, onChange }: {
         >
           MAX
         </button>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {PRESETS.map(p => {
+          const disabled = max === 0 || p > top
+          const active = value === p && !disabled
+          return (
+            <button
+              key={p}
+              type="button"
+              disabled={disabled}
+              onClick={() => set(p)}
+              className={cn(
+                'rounded-pill border px-2.5 py-0.5 font-mono text-micro transition-colors disabled:cursor-not-allowed disabled:opacity-35',
+                active
+                  ? 'border-brand bg-brand/15 font-bold text-brand'
+                  : 'border-border-subtle text-text-tertiary hover:border-brand/50 hover:text-text-primary',
+              )}
+            >
+              {p === 30 ? '30 MAX' : p}
+            </button>
+          )
+        })}
       </div>
     </div>
   )

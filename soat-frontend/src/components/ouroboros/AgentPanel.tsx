@@ -30,7 +30,7 @@ const L2_SLIPPAGE_BPS = 100n
  * connect to a site. This builds the exact calls that wallet must send —
  * approve and mint, or claim — for the address entered here.
  */
-export function AgentPanel({ state, onDone }: { state: OuroState; onDone: () => void }) {
+export function AgentPanel({ state, onDone, embedded = false }: { state: OuroState; onDone: () => void; embedded?: boolean }) {
   const c = useOuroCopy()
   const agent = useAgentAddress()
   const { user, refetch } = useOuroUser(agent)
@@ -95,19 +95,19 @@ export function AgentPanel({ state, onDone }: { state: OuroState; onDone: () => 
     claimSteps.push({ note: c.claim, to: OURO_MINT, abi: OURO_MINT_ABI, functionName: 'claim' })
   }
 
-  return (
-    <Panel title={c.agentTitle}>
+  const body = (
+    <div className="flex flex-col gap-4">
       <p className="text-note text-text-tertiary">{c.agentIntro}</p>
       <AgentAddressField label={c.agentAddress} hint={c.agentAddressHint} invalidHint={c.agentAddressBad} />
       {agent && (
-        <dl className="flex flex-col gap-2 text-note">
+        <dl className="flex flex-col gap-2 rounded-card border border-border-subtle bg-bg-subtle/60 p-4 text-note">
           <Row k={c.remaining} v={`${user.remaining} / ${MAX_SHARES}`} />
           {user.l1Shares > 0n && <Row k={c.l1Claim} v={user.l1Claimed ? c.l1Claimed : fmtCompact(user.l1Tokens)} />}
           <Row k={c.vestClaimable} v={vestClaimable > 0n ? fmtCompact(vestClaimable) : c.nothing} />
         </dl>
       )}
 
-      {early && <p className="text-note text-warning">{fill(c.agentEarly, { time: opensAt })}</p>}
+      {early && <p className="rounded-input border border-warning/35 bg-warning/10 px-3 py-2 text-note text-warning">{fill(c.agentEarly, { time: opensAt })}</p>}
 
       {minting && (
         <div className="flex flex-col gap-3">
@@ -115,7 +115,7 @@ export function AgentPanel({ state, onDone }: { state: OuroState; onDone: () => 
             <SharesInput label={c.shares} value={n} max={max} onChange={setShares} />
             <PayToggle label={c.payWith} bnb={payBnb} onChange={setPayBnb} />
           </div>
-          <dl className="text-note">
+          <dl className="rounded-card border border-border-subtle bg-bg-subtle/60 px-4 py-3 text-note">
             <Row k={c.cost} v={pay ? (bnbValue === undefined ? '…' : `${fmt(bnbValue, 6)} ${NATIVE_SYMBOL}`) : `${fmt(cost)} USDT`} strong />
           </dl>
           <AgentModeSheet
@@ -137,6 +137,9 @@ export function AgentPanel({ state, onDone }: { state: OuroState; onDone: () => 
       {agent && claimSteps.length > 0 && (
         <AgentModeSheet title={c.claimTitle} openLabel={c.claimTitle} steps={claimSteps} addressField={false} onDone={done} />
       )}
-    </Panel>
+    </div>
   )
+
+  if (embedded) return body
+  return <Panel title={c.agentTitle}>{body}</Panel>
 }
