@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { parseAbi } from 'viem'
+import { parseAbi, parseUnits } from 'viem'
 import { useAccount, useReadContract, useSignMessage } from 'wagmi'
 
 import { Panel } from '@/components/x/Panel'
@@ -10,7 +10,7 @@ import { useWalletPicker } from '@/components/WalletPicker'
 import { TARGET_CHAIN_ID } from '@/lib/contracts'
 import { AUTOPAY_LIMITS } from '@/lib/ouroboros/autopayPlan'
 import { OURO_REF_PAYER, OURO_TREASURY } from '@/lib/ouroboros/config'
-import { refMessage, type RefAction } from '@/lib/ouroboros/ref'
+import { MAX_REF_BONUS_WEI, refMessage, type RefAction } from '@/lib/ouroboros/ref'
 
 import { Field } from './BidBookPanel'
 import { fmt } from './fmt'
@@ -21,7 +21,7 @@ const SAFE_ABI = parseAbi(['function isOwner(address owner) view returns (bool)'
 const ADMIN_ENABLED = process.env.NEXT_PUBLIC_OURO_REF_ADMIN === '1'
 
 interface Report {
-  links: { code: string; partner: string; label: string; rateBps: number; accounts: number; volume: string; accrued: string }[]
+  links: { code: string; partner: string; label: string; bonus: string | null; accounts: number; volume: string; accrued: string }[]
   payouts: { txHash: string; logIndex: number; partner: string; amount: string; blockNumber: number }[]
   partners: { partner: string; accrued: string; paid: string; owed: string }[]
 }
@@ -29,10 +29,12 @@ interface Report {
 interface Autopay { enabled: boolean; lastRunAt: string | null; lastStatus: string | null; lastDetail: string | null }
 
 const usdt = (wei: string) => `${fmt(BigInt(wei), 2)} USDT`
-const pct = (bps: number) => `${bps / 100}%`
-const toBps = (s: string) => {
-  const n = Number(s.trim())
-  return s.trim() !== '' && Number.isFinite(n) ? Math.round(n * 100) : undefined
+/** A USDT amount typed by the admin, as wei; undefined unless it is above 0 and at most the cap. */
+const toWei = (s: string) => {
+  const t = s.trim()
+  if (!/^\d+(\.\d{1,18})?$/.test(t)) return undefined
+  const wei = parseUnits(t, 18)
+  return wei > 0n && wei <= MAX_REF_BONUS_WEI ? wei.toString() : undefined
 }
 
 export function PartnersApp() {
@@ -118,7 +120,7 @@ type Run = (request: RefAction) => Promise<boolean | undefined>
 function Links({ report, admin, busy, run }: { report: Report; admin: boolean; busy: boolean; run: Run }) {
   const c = usePartnersCopy()
   const [copied, setCopied] = useState<string | null>(null)
-  const [rates, setRates] = useState<Record<string, string>>({})
+  const [bonuses, setBonuses] = useState<Record<string, string>>({})
   const url = (code: string) => `${window.location.origin}/ouroboros?ref=${code}`
   if (report.links.length === 0) return <Panel title={c.links}><p className="text-note text-text-tertiary">{c.noLinks}</p></Panel>
   return (
@@ -130,23 +132,23 @@ function Links({ report, admin, busy, run }: { report: Report; admin: boolean; b
               <th className="px-3 py-2">{c.code}</th>
               {admin && <th className="px-3 py-2">{c.partner}</th>}
               <th className="px-3 py-2">{c.label}</th>
-              <th className="px-3 py-2">{c.rate}</th>
+              <th className="px-3 py-2">{c.bonus}</th>
               <th className="px-3 py-2">{c.accounts}</th>
               <th className="px-3 py-2">{c.volume}</th>
               <th className="px-3 py-2">{c.accrued}</th>
               <th className="px-3 py-2">{c.url}</th>
-              {admin && <th className="px-3 py-2">{c.setRate}</th>}
+              {admin && <th className="px-3 py-2">{c.setBonus}</th>}
             </tr>
           </thead>
           <tbody>
             {report.links.map(l => {
-              const bps = toBps(rates[l.code] ?? '')
+              const wei = toWei(bonuses[l.code] ?? '')
               return (
                 <tr key={l.code} className="border-t border-border-subtle">
                   <td className="px-3 py-2 font-mono">{l.code}</td>
                   {admin && <td className="px-3 py-2 font-mono"><AddressLink value={l.partner} /></td>}
                   <td className="px-3 py-2">{l.label}</td>
-                  <td className="px-3 py-2 font-mono">{pct(l.rateBps)}</td>
+                  <td className="px-3 py-2 font-mono">{l.bonus ? usdt(l.bonus) : '—'}</td>
                   <td className="px-3 py-2 font-mono">{l.accounts}</td>
                   <td className="px-3 py-2 font-mono">{usdt(l.volume)}</td>
                   <td className="px-3 py-2 font-mono">{usdt(l.accrued)}</td>
@@ -163,13 +165,13 @@ function Links({ report, admin, busy, run }: { report: Report; admin: boolean; b
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-2">
                         <input
-                          inputMode="decimal" placeholder="%" value={rates[l.code] ?? ''}
-                          onChange={e => setRates({ ...rates, [l.code]: e.target.value })}
-                          className="w-16 rounded-input border border-border-subtle bg-bg-subtle px-2 py-1 font-mono text-text-primary"
+                          inputMode="decimal" placeholder="USDT" value={bonuses[l.code] ?? ''}
+                          onChange={e => setBonuses({ ...bonuses, [l.code]: e.target.value })}
+                          className="w-24 rounded-input border border-border-subtle bg-bg-subtle px-2 py-1 font-mono text-text-primary"
                         />
                         <Button
-                          label={c.save} size="sm" disabled={busy || bps === undefined}
-                          onClick={() => bps !== undefined && void run({ action: 'setRate', code: l.code, rateBps: bps })}
+                          label={c.save} size="sm" disabled={busy || wei === undefined}
+                          onClick={() => wei !== undefined && void run({ action: 'setBonus', code: l.code, bonus: wei })}
                         />
                       </div>
                     </td>
@@ -266,14 +268,14 @@ function AdminForms({ busy, run }: { busy: boolean; run: Run }) {
   const [code, setCode] = useState('')
   const [partner, setPartner] = useState('')
   const [label, setLabel] = useState('')
-  const [rate, setRate] = useState('')
+  const [bonus, setBonus] = useState('')
   const [txHash, setTxHash] = useState('')
-  const bps = toBps(rate)
+  const wei = toWei(bonus)
 
   const create = async () => {
-    if (bps === undefined) return
-    const ok = await run({ action: 'createLink', code: code.trim().toLowerCase(), partner: partner.trim(), label: label.trim(), rateBps: bps })
-    if (ok) { setCode(''); setPartner(''); setLabel(''); setRate('') }
+    if (wei === undefined) return
+    const ok = await run({ action: 'createLink', code: code.trim().toLowerCase(), partner: partner.trim(), label: label.trim(), bonus: wei })
+    if (ok) { setCode(''); setPartner(''); setLabel(''); setBonus('') }
   }
   const record = async () => {
     if (await run({ action: 'recordPayout', txHash: txHash.trim() })) setTxHash('')
@@ -287,10 +289,10 @@ function AdminForms({ busy, run }: { busy: boolean; run: Run }) {
             <Field label={c.code} value={code} onChange={setCode} />
             <Field label={c.partner} value={partner} onChange={setPartner} />
             <Field label={c.label} value={label} onChange={setLabel} />
-            <Field label={`${c.rate} (%)`} value={rate} onChange={setRate} />
-            <Button label={c.create} onClick={() => void create()} disabled={busy || bps === undefined || !code || !partner} />
+            <Field label={`${c.bonus} (USDT)`} value={bonus} onChange={setBonus} />
+            <Button label={c.create} onClick={() => void create()} disabled={busy || wei === undefined || !code || !partner} />
           </div>
-          <p className="text-note text-text-tertiary">{c.rateNote}</p>
+          <p className="text-note text-text-tertiary">{c.bonusNote}</p>
         </div>
       </Panel>
       <Panel title={c.recordPayout}>

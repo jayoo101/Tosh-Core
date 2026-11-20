@@ -30,9 +30,9 @@ describe('ouroboros referral code', () => {
   })
 
   it('signs the same text whatever the field order', () => {
-    const a = refMessage({ action: 'setRate', code: 'abc', rateBps: 500 }, 1)
-    const b = refMessage({ rateBps: 500, code: 'abc', action: 'setRate' } as const, 1)
+    const a = refMessage({ action: 'setBonus', code: 'abc', bonus: '500' }, 1)
+    const b = refMessage({ bonus: '500', code: 'abc', action: 'setBonus' } as const, 1)
     expect(a).toBe(b)
-    expect(a).toBe('Ouroboros referrals\naction: setRate\ncode: abc\nrateBps: 500\nissued: 1')
+    expect(a).toBe('Ouroboros referrals\naction: setBonus\nbonus: 500\ncode: abc\nissued: 1')
   })
 })

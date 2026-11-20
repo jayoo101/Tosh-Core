@@ -13,8 +13,8 @@ import { hexToString, stringToHex, zeroHash, type Hex } from 'viem'
 /** Codes are assigned by the multisig; lowercase letters and digits only. */
 export const REF_CODE_RE = /^[a-z0-9]{3,16}$/
 
-/** Most a partner link can be paid: the treasury's 20 % of every mint. */
-export const MAX_REF_RATE_BPS = 2_000
+/** Most a partner link can be paid for one full Agent ID: 10,000 USDT, in wei (18 decimals). */
+export const MAX_REF_BONUS_WEI = 10_000n * 10n ** 18n
 
 export const isRefCode = (s: unknown): s is string => typeof s === 'string' && REF_CODE_RE.test(s)
 
@@ -39,8 +39,9 @@ export const REF_SIG_TTL_MS = 10 * 60_000
 export type RefAction =
   | { action: 'list' }
   | { action: 'view' }
-  | { action: 'createLink'; code: string; partner: string; label: string; rateBps: number }
-  | { action: 'setRate'; code: string; rateBps: number }
+  /** `bonus` is USDT wei, a decimal string. */
+  | { action: 'createLink'; code: string; partner: string; label: string; bonus: string }
+  | { action: 'setBonus'; code: string; bonus: string }
   | { action: 'recordPayout'; txHash: string }
   /** Lets the next automatic run pay up to `maxTotal` USDT wei above the caps, once, within a day. */
   | { action: 'approvePayout'; maxTotal: string }
