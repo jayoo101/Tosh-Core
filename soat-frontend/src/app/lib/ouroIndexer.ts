@@ -13,7 +13,9 @@ import { parseAbiItem, parseEventLogs, type Address, type Log, type PublicClient
 import { serverPublicClient } from '@/app/lib/serverRpc'
 import { getSupabaseAdmin } from '@/app/lib/supabaseAdmin'
 import { OURO_BIDBOOK_ABI, OURO_MINT_ABI } from '@/lib/ouroboros/abis'
+import { syncContestAwards } from '@/app/lib/ouroContest'
 import { storePartnerPayouts } from '@/app/lib/ouroRef'
+import { reportError } from '@/lib/observability'
 import { OURO_BIDBOOK, OURO_ENABLED, OURO_FROM_BLOCK, OURO_MINT, OURO_REF_PAYER, OURO_USDT } from '@/lib/ouroboros/config'
 import { decodeRefCode } from '@/lib/ouroboros/ref'
 import { passEnd } from '@/lib/ouroboros/indexPlan'
@@ -118,7 +120,9 @@ export async function runOuroIndexPass(): Promise<OuroIndexPass> {
 
   const mints: Record<string, unknown>[] = mintLogs.map(l => {
     const base = {
-      tx_hash: l.transactionHash, log_index: l.logIndex, account: lower(l.args.user), agent_key: l.args.agentKey,
+      tx_hash: l.transactionHash.toLowerCase(), log_index: l.logIndex, tx_index: l.transactionIndex,
+      account: lower(l.args.user),
+      agent_key: l.args.agentKey.startsWith('0x') ? l.args.agentKey.toLowerCase() : l.args.agentKey,
       ref_code: decodeRefCode(l.args.ref),
       shares: Number(l.args.shares), cost: l.args.cost.toString(), paid_in_bnb: l.args.paidInBnb,
       block_number: Number(l.blockNumber),
@@ -189,6 +193,12 @@ export async function runOuroIndexPass(): Promise<OuroIndexPass> {
   const { error: cursorWriteErr } = await db.from('v2_indexer_state')
     .upsert({ id: CURSOR_ID, last_block: Number(to), updated_at: new Date().toISOString() }, { onConflict: 'id' })
   if (cursorWriteErr) throw new Error(`v2_indexer_state write: ${cursorWriteErr.message}`)
+
+  // Best-effort: a contest-sync failure must not rewind the chain cursor.
+  // The hourly payout syncs again under its own lock before it sends anything.
+  await syncContestAwards(client).catch(err => {
+    reportError(err, { surface: 'api-route', extra: { route: '/api/ouroboros/index', step: 'contest-sync' } })
+  })
 
   return { from, to, head, caughtUp: to >= head, counts }
 }

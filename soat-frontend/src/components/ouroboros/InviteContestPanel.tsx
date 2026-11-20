@@ -5,7 +5,9 @@ import { useAccount, useSignMessage } from 'wagmi'
 
 import { Button } from '@/components/ui'
 import { useWalletPicker } from '@/components/WalletPicker'
+import { CONTEST_RULES_EN, CONTEST_RULES_ZH } from '@/lib/ouroboros/contest'
 import { isRefCode, randomRefCode, refMessage } from '@/lib/ouroboros/ref'
+import { useLocale } from '@/i18n'
 
 import { useOuroCopy } from './copy'
 
@@ -30,6 +32,7 @@ function MiniField({ label, value, onChange }: { label: string; value: string; o
  */
 export function InviteContestPanel() {
   const c = useOuroCopy()
+  const rules = useLocale().startsWith('zh') ? CONTEST_RULES_ZH : CONTEST_RULES_EN
   const picker = useWalletPicker()
   const { address } = useAccount()
   const { signMessageAsync } = useSignMessage()
@@ -139,6 +142,7 @@ export function InviteContestPanel() {
       <div className="flex flex-col gap-1">
         <h3 className="text-label uppercase text-text-tertiary">{c.inviteTitle}</h3>
         <p className="text-note text-text-secondary">{c.inviteNote}</p>
+        <p className="whitespace-pre-line text-note text-text-tertiary">{rules}</p>
       </div>
 
       <div className="flex flex-wrap items-end gap-3">

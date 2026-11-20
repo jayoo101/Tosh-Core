@@ -26,6 +26,10 @@ const db = vi.hoisted(() => ({
 
 vi.mock('@/lib/ouroboros/config', () => ({ OURO_REF_PAYER: C.PAYER, OURO_USDT: C.USDT }))
 vi.mock('@/app/lib/ouroIndexer', () => ({ ouroIndexStaleness: async () => null }))
+vi.mock('@/app/lib/ouroContest', () => ({
+  syncContestAwards: async () => 0,
+  settleContestTransfers: async () => 0,
+}))
 vi.mock('@/app/lib/ouroRef', () => ({
   refReport: async () => ({ partners: [...db.owed].map(([partner, owed]) => ({ partner, owed: owed.toString() })) }),
   storePartnerPayouts: async (ts: { txHash: string; logIndex: number; to: string; value: bigint }[]) => {

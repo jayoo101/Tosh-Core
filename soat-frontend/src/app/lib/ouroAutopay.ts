@@ -20,6 +20,7 @@ import {
 } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 
+import { settleContestTransfers, syncContestAwards } from '@/app/lib/ouroContest'
 import { refReport, storePartnerPayouts } from '@/app/lib/ouroRef'
 import { serverPublicClient, serverRpcUrl } from '@/app/lib/serverRpc'
 import { getSupabaseAdmin } from '@/app/lib/supabaseAdmin'
@@ -74,9 +75,11 @@ async function storeReceipt(hash: Hex, from: string): Promise<'success' | 'rever
     const transfers = parseEventLogs({
       abi: erc20Abi, eventName: 'Transfer', logs: receipt.logs.filter(l => lower(l.address) === lower(OURO_USDT!)),
     }).filter(l => lower(l.args.from) === lower(from))
-    await storePartnerPayouts(transfers.map(l => ({
+    const recorded = transfers.map(l => ({
       txHash: l.transactionHash, logIndex: l.logIndex, to: l.args.to, value: l.args.value, blockNumber: l.blockNumber,
-    })), 'autopay')
+    }))
+    await storePartnerPayouts(recorded, 'autopay')
+    await settleContestTransfers(recorded, 'autopay')
   }
   const { error } = await db().from('ouro_ref_pending').delete().eq('tx_hash', lower(hash))
   if (error) throw new Error(`pending delete: ${error.message}`)
@@ -123,6 +126,7 @@ async function pay(): Promise<AutopayResult> {
   // index from the payer's transfers; until the index is current, it would be paid again.
   const stale = await ouroIndexStaleness()
   if (stale) return { status: 'waiting', detail: `the index is not current (${stale})` }
+  await syncContestAwards()
 
   const report = await refReport()
   const approved = await approval()

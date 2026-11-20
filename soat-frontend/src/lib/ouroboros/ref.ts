@@ -65,6 +65,22 @@ export type RefAction =
   | { action: 'recordPayout'; txHash: string }
   /** Lets the next automatic run pay up to `maxTotal` USDT wei above the caps, once, within a day. */
   | { action: 'approvePayout'; maxTotal: string }
+  /** Admin: record a manual contest decision. Does not send a transfer. */
+  | { action: 'reviewContest'; agentKey: string; decision: 'hold' | 'disqualify' | 'clear'; reason: string }
+  | {
+    action: 'reviewContest'
+    agentKey: string
+    decision: 'assign'
+    reason: string
+    account: string
+    code: string
+    partner: string
+  }
+  /**
+   * Admin: point an already recorded payout at one contest prize.
+   * Does not send a transfer and does not change the payout row.
+   */
+  | { action: 'linkContestSettlement'; agentKey: string; txHash: string; reason: string }
 
 /** The exact text a wallet signs for `req`; the server rebuilds it from the same fields. */
 export function refMessage(req: RefAction, issuedAt: number): string {

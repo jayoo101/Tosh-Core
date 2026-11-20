@@ -10,6 +10,7 @@ import {
   getAddress, isAddress, isHex, keccak256, parseAbi, parseEventLogs, stringToHex, type Address, type Hex,
 } from 'viem'
 
+import { syncContestAwards } from '@/app/lib/ouroContest'
 import { assertServerChain, serverPublicClient } from '@/app/lib/serverRpc'
 import { getSupabaseAdmin } from '@/app/lib/supabaseAdmin'
 import { OURO_REF_PAYER, OURO_TREASURY, OURO_USDT } from '@/lib/ouroboros/config'
@@ -27,6 +28,40 @@ export class RefError extends Error {
 }
 
 const lower = (a: string) => a.toLowerCase()
+
+function agentKey(v: unknown): string {
+  if (typeof v !== 'string' || v.trim().length < 1 || v.length > 200) throw new RefError(422, 'agentKey is required')
+  const key = v.trim()
+  return key.startsWith('0x') || key.startsWith('0X') ? key.toLowerCase() : key
+}
+
+function reason(v: unknown): string {
+  if (typeof v !== 'string' || v.trim().length < 1 || v.length > 500) {
+    throw new RefError(422, 'reason must be 1 to 500 characters')
+  }
+  return v.trim()
+}
+
+function txHash(v: unknown): string {
+  if (typeof v !== 'string' || !isHex(v) || v.length !== 66) throw new RefError(422, 'txHash must be a transaction hash')
+  return v.toLowerCase()
+}
+
+function parseReview(r: Record<string, unknown>): RefAction {
+  const decision = r.decision
+  if (decision !== 'hold' && decision !== 'disqualify' && decision !== 'clear' && decision !== 'assign') {
+    throw new RefError(422, 'decision must be hold, disqualify, clear or assign')
+  }
+  const base = { agentKey: agentKey(r.agentKey), reason: reason(r.reason) }
+  if (decision !== 'assign') return { action: 'reviewContest', decision, ...base }
+  if (typeof r.account !== 'string' || !isAddress(r.account)) throw new RefError(422, 'account must be an address')
+  if (typeof r.partner !== 'string' || !isAddress(r.partner)) throw new RefError(422, 'partner must be an address')
+  if (!isRefCode(r.code)) throw new RefError(422, 'code must be 3 to 16 lowercase letters or digits')
+  return {
+    action: 'reviewContest', decision, ...base,
+    account: lower(r.account), code: r.code, partner: lower(r.partner),
+  }
+}
 /** How far ahead of the server's clock a signature may be dated. */
 const REF_SIG_MAX_SKEW_MS = 60_000
 
@@ -84,6 +119,15 @@ export function parseRefAction(v: unknown): RefAction {
         throw new RefError(422, 'maxTotal must be a positive whole number of USDT wei')
       }
       return { action: 'approvePayout', maxTotal: r.maxTotal }
+    case 'reviewContest':
+      return parseReview(r)
+    case 'linkContestSettlement':
+      return {
+        action: 'linkContestSettlement',
+        agentKey: agentKey(r.agentKey),
+        txHash: txHash(r.txHash),
+        reason: reason(r.reason),
+      }
     default:
       throw new RefError(422, 'unknown action')
   }
@@ -140,8 +184,19 @@ export interface RefApplication {
   status: 'pending' | 'approved' | 'rejected'
   appliedAt: string; reviewedAt: string | null; rejectReason: string | null
 }
+export interface ContestHold {
+  agentKey: string
+  rank: number
+  reason: string | null
+  partner: string
+  account: string
+}
 export interface RefReport {
-  links: RefLink[]; payouts: RefPayout[]; partners: RefPartner[]; applications: RefApplication[]
+  links: RefLink[]
+  payouts: RefPayout[]
+  partners: RefPartner[]
+  applications: RefApplication[]
+  holds: ContestHold[]
 }
 
 /** PostgREST caps a response at 1,000 rows; reads stay under it a page at a time. */
@@ -222,8 +277,9 @@ export async function refReport(partner?: string): Promise<RefReport> {
     .order('block_number', { ascending: false }).order('log_index', { ascending: false })
   if (who) payouts = payouts.eq('partner', who)
 
-  const [linkRows, partners, p, applications] = await Promise.all([
+  const [linkRows, partners, p, applications, holds] = await Promise.all([
     allRows<LinkRow>('links', links), balances(), payouts.range(0, REPORT_PAYOUTS - 1), listApplications(who),
+    listHolds(who),
   ])
   check(p.error, 'payouts')
   const payRows = (p.data ?? []) as unknown as PayRow[]
@@ -238,7 +294,25 @@ export async function refReport(partner?: string): Promise<RefReport> {
     })),
     partners,
     applications,
+    holds,
   }
+}
+
+/** Held prizes for review. Missing contest tables mean the migration is not applied yet. */
+async function listHolds(partner?: string): Promise<ContestHold[]> {
+  let q = db().from('ouro_ref_contest_awards')
+    .select('agent_key, rank, reason, partner, account')
+    .eq('status', 'held')
+    .order('rank', { ascending: true })
+    .limit(100)
+  if (partner) q = q.eq('partner', partner)
+  const { data, error } = await q
+  if (error) {
+    if (/does not exist|schema cache|Could not find/i.test(error.message)) return []
+    check(error, 'contest')
+  }
+  return ((data ?? []) as { agent_key: string; rank: number; reason: string | null; partner: string; account: string }[])
+    .map(r => ({ agentKey: r.agent_key, rank: Number(r.rank), reason: r.reason, partner: r.partner, account: r.account }))
 }
 
 async function headBlock(): Promise<number> {
@@ -364,6 +438,59 @@ export async function approvePayout(r: Extract<RefAction, { action: 'approvePayo
     sig_hash: keccak256(stringToHex(`${lower(by)}\n${refMessage(r, issuedAt)}`)),
   })
   check(error, 'approval')
+}
+
+/** Appends an audit row and recomputes prizes. Does not send a transfer. */
+export async function reviewContest(r: Extract<RefAction, { action: 'reviewContest' }>, by: Address) {
+  const row: Record<string, unknown> = {
+    agent_key: r.agentKey, decision: r.decision, reason: r.reason, reviewed_by: lower(by),
+  }
+  if (r.decision === 'assign') {
+    row.account = r.account
+    row.code = r.code
+    row.partner = r.partner
+  }
+  const { error } = await db().from('ouro_ref_contest_reviews').insert(row)
+  check(error, 'review')
+  await syncContestAwards()
+}
+
+/**
+ * Links a prize to a payout row that is already stored.
+ * Refuses when the transaction did not pay this partner at least 5 USDT.
+ */
+export async function linkContestSettlement(
+  r: Extract<RefAction, { action: 'linkContestSettlement' }>, by: Address,
+) {
+  const { data, error } = await db().from('ouro_ref_contest_awards')
+    .select('partner, status, amount::text').eq('agent_key', r.agentKey).maybeSingle()
+  check(error, 'award')
+  if (!data) throw new RefError(404, 'no contest prize for that Agent ID')
+  const award = data as { partner: string; status: string; amount: string }
+  if (award.status !== 'payable') throw new RefError(409, `prize is ${award.status}`)
+  const { data: prior, error: priorErr } = await db().from('ouro_ref_contest_settlements')
+    .select('agent_key').eq('agent_key', r.agentKey).maybeSingle()
+  check(priorErr, 'settlement')
+  if (prior) throw new RefError(409, 'prize is already linked to a transfer')
+  const { data: pays, error: payErr } = await db().from('ouro_ref_payouts')
+    .select('amount::text, partner, log_index').eq('tx_hash', r.txHash)
+  check(payErr, 'payout')
+  const matched = ((pays ?? []) as { amount: string; partner: string; log_index: number }[])
+    .filter(p => p.partner === award.partner)
+  const covered = matched.reduce((sum, p) => sum + BigInt(p.amount), 0n)
+  if (matched.length === 0 || covered < BigInt(award.amount)) {
+    throw new RefError(422, 'that transaction does not pay this partner 5 USDT')
+  }
+  const { error: ins } = await db().from('ouro_ref_contest_settlements').insert({
+    agent_key: r.agentKey,
+    partner: award.partner,
+    amount: award.amount,
+    tx_hash: r.txHash,
+    log_index: matched[0]!.log_index,
+    recorded_by: lower(by),
+    reason: r.reason,
+  })
+  check(ins, 'settlement')
 }
 
 /** Whether `code` is a registered link, for the page to decide whether to tag mints with it. */
