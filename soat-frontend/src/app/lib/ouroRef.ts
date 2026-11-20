@@ -14,7 +14,7 @@ import { assertServerChain, serverPublicClient } from '@/app/lib/serverRpc'
 import { getSupabaseAdmin } from '@/app/lib/supabaseAdmin'
 import { OURO_REF_PAYER, OURO_TREASURY, OURO_USDT } from '@/lib/ouroboros/config'
 import {
-  isRefCode, MAX_REF_BONUS_WEI, REF_SIG_TTL_MS, refMessage, type RefAction,
+  isRefCode, MAX_REF_BONUS_WEI, refMessage, refSigTtl, type RefAction,
 } from '@/lib/ouroboros/ref'
 
 const SAFE_ABI = parseAbi(['function isOwner(address owner) view returns (bool)'])
@@ -97,7 +97,7 @@ export async function verifyRefSigner(
   if (typeof signature !== 'string' || !isHex(signature)) throw new RefError(401, 'signature missing')
   if (
     typeof issuedAt !== 'number' || !Number.isFinite(issuedAt)
-    || now - issuedAt > REF_SIG_TTL_MS
+    || now - issuedAt > refSigTtl(request)
   ) {
     throw new RefError(401, 'signature expired; sign again')
   }

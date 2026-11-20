@@ -11,7 +11,9 @@ import { useWalletPicker } from '@/components/WalletPicker'
 import { TARGET_CHAIN_ID } from '@/lib/contracts'
 import { AUTOPAY_LIMITS } from '@/lib/ouroboros/autopayPlan'
 import { OURO_REF_PAYER, OURO_TREASURY } from '@/lib/ouroboros/config'
-import { MAX_REF_BONUS_WEI, randomRefCode, refMessage, type RefAction } from '@/lib/ouroboros/ref'
+import {
+  MAX_REF_BONUS_WEI, randomRefCode, REF_READ_SIG_TTL_MS, refMessage, type RefAction,
+} from '@/lib/ouroboros/ref'
 
 import { Field } from './Field'
 import { fmt } from './fmt'
@@ -37,6 +39,31 @@ interface Report {
 interface Autopay { enabled: boolean; lastRunAt: string | null; lastStatus: string | null; lastDetail: string | null }
 
 const noopSubscribe = () => () => {}
+
+/** Read-only signatures are remembered per wallet until shortly before the server stops accepting them. */
+const sigKey = (address: string, req: RefAction) => `ouro:refsig:${address.toLowerCase()}:${req.action}`
+const isRead = (req: RefAction) => req.action === 'list' || req.action === 'view'
+
+function readCachedSig(address: string, req: RefAction): { issuedAt: number; signature: `0x${string}` } | null {
+  if (!isRead(req)) return null
+  try {
+    const raw = window.localStorage.getItem(sigKey(address, req))
+    if (!raw) return null
+    const v = JSON.parse(raw) as { issuedAt: number; signature: `0x${string}` }
+    return Date.now() - v.issuedAt < REF_READ_SIG_TTL_MS - 5 * 60_000 ? v : null
+  } catch {
+    return null
+  }
+}
+
+function writeCachedSig(address: string, req: RefAction, issuedAt: number, signature: string) {
+  if (!isRead(req)) return
+  try { window.localStorage.setItem(sigKey(address, req), JSON.stringify({ issuedAt, signature })) } catch { /* storage blocked */ }
+}
+
+function clearCachedSig(address: string, req: RefAction) {
+  try { window.localStorage.removeItem(sigKey(address, req)) } catch { /* storage blocked */ }
+}
 const usdt = (wei: string) => `${fmt(BigInt(wei), 2)} USDT`
 /** A USDT amount typed by the admin, as wei; undefined unless it is above 0 and at most the cap. */
 const toWei = (s: string) => {
@@ -68,32 +95,52 @@ export function PartnersApp() {
   const autopay = fetched && fetched.by === address ? fetched.autopay : null
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const readAction: RefAction = { action: isAdmin ? 'list' : 'view' }
+  const roleKnown = !ADMIN_ENABLED || signer.data !== undefined
 
-  const run = async (request: RefAction) => {
+  const run = async (request: RefAction, opts: { cachedOnly?: boolean } = {}) => {
     if (!address) return
+    const cached = readCachedSig(address, request)
+    if (opts.cachedOnly && !cached) return
     setBusy(true)
     setMessage(null)
     try {
-      const issuedAt = Date.now()
-      const signature = await signMessageAsync({ message: refMessage(request, issuedAt) })
+      const { issuedAt, signature } = cached ?? await (async () => {
+        const at = Date.now()
+        return { issuedAt: at, signature: await signMessageAsync({ message: refMessage(request, at) }) }
+      })()
       const res = await fetch('/api/ouroboros/ref', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ request, issuedAt, address, signature }),
       })
       const body = await res.json()
-      if (!res.ok) throw new Error(body.error ?? res.statusText)
+      if (!res.ok) {
+        if (cached) clearCachedSig(address, request)
+        throw new Error(body.error ?? res.statusText)
+      }
+      if (!cached) writeCachedSig(address, request, issuedAt, signature)
       setFetched({ by: address, report: body.report, autopay: body.autopay ?? null })
       if (typeof body.recorded === 'number') setMessage(c.recorded(body.recorded))
       if (request.action === 'apply') setMessage(c.applyOk)
       return true
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : String(err))
+      if (!opts.cachedOnly) setMessage(err instanceof Error ? err.message : String(err))
       return false
     } finally {
       setBusy(false)
     }
   }
+
+  // Reload the listing from a remembered read signature, so a refresh does not
+  // ask the wallet again.
+  const autoKey = walletReady && address && roleKnown && !report ? `${address}:${readAction.action}` : null
+  useEffect(() => {
+    if (!autoKey) return
+    const t = window.setTimeout(() => void run(readAction, { cachedOnly: true }), 0)
+    return () => window.clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on wallet + role only
+  }, [autoKey])
 
   const connectButton = !walletReady
     ? <Button label={c.connect} full disabled />

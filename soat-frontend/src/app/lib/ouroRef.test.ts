@@ -62,9 +62,17 @@ describe('referral requests', () => {
       .rejects.toMatchObject({ status: 401 })
   })
 
-  it('refuses a signature older than ten minutes', async () => {
-    const request: RefAction = { action: 'view' }
+  it('refuses a write signature older than ten minutes', async () => {
+    const request: RefAction = { action: 'setBonus', code: 'abc', bonus: '500' }
     const { issuedAt, signature } = await signed(request, Date.now() - 11 * 60_000)
     await expect(verifyRefSigner(request, issuedAt, account.address, signature)).rejects.toMatchObject({ status: 401 })
+  })
+
+  it('keeps a read signature valid for twelve hours, and no longer', async () => {
+    const request: RefAction = { action: 'view' }
+    const fresh = await signed(request, Date.now() - 11 * 60 * 60_000)
+    expect(await verifyRefSigner(request, fresh.issuedAt, account.address, fresh.signature)).toBe(account.address)
+    const stale = await signed(request, Date.now() - 13 * 60 * 60_000)
+    await expect(verifyRefSigner(request, stale.issuedAt, account.address, stale.signature)).rejects.toMatchObject({ status: 401 })
   })
 })

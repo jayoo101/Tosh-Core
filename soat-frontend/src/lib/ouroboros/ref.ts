@@ -51,6 +51,12 @@ export function decodeRefCode(ref: Hex): string | null {
 /** How long a signed request stays valid. */
 export const REF_SIG_TTL_MS = 10 * 60_000
 
+/** Read-only requests (`list`, `view`) are cached by the page and stay valid longer. */
+export const REF_READ_SIG_TTL_MS = 12 * 60 * 60_000
+
+export const refSigTtl = (req: RefAction) =>
+  req.action === 'list' || req.action === 'view' ? REF_READ_SIG_TTL_MS : REF_SIG_TTL_MS
+
 export type RefAction =
   | { action: 'list' }
   | { action: 'view' }
