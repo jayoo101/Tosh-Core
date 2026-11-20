@@ -185,14 +185,21 @@ export function PartnersApp() {
                 ? (isAdmin ? c.adminRole : c.partnerRole)
                 : c.recordsNote}
             </p>
-            {walletReady && address && (
-              <Button
-                label={busy ? c.signing : c.sign}
-                full
-                onClick={() => void run({ action: isAdmin ? 'list' : 'view' })}
-                disabled={busy}
-              />
-            )}
+            {walletReady && address && (() => {
+              const remembered = readCachedSig(address, readAction) !== null
+              return (
+                <>
+                  <Button
+                    label={busy ? (remembered ? c.loading : c.signing) : (remembered ? c.refresh : c.sign)}
+                    full
+                    variant={remembered ? 'ghost' : 'primary'}
+                    onClick={() => void run(readAction)}
+                    disabled={busy || !roleKnown}
+                  />
+                  <p className="text-label text-text-quiet">{remembered ? c.signRemembered : c.signOnce}</p>
+                </>
+              )
+            })()}
             {message && (
               <p className="rounded-input border border-border-subtle bg-bg-subtle px-3 py-2 text-note text-text-secondary">
                 {message}
