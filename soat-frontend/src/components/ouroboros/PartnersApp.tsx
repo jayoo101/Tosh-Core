@@ -10,7 +10,9 @@ import { useWalletPicker } from '@/components/WalletPicker'
 import { TARGET_CHAIN_ID } from '@/lib/contracts'
 import { AUTOPAY_LIMITS } from '@/lib/ouroboros/autopayPlan'
 import { OURO_REF_PAYER, OURO_TREASURY } from '@/lib/ouroboros/config'
+import { CONTEST_RULES_EN, CONTEST_RULES_ZH } from '@/lib/ouroboros/contest'
 import { MAX_REF_BONUS_WEI, randomRefCode, refMessage, type RefAction } from '@/lib/ouroboros/ref'
+import { useLocale } from '@/i18n'
 
 import { Field } from './BidBookPanel'
 import { fmt } from './fmt'
@@ -31,6 +33,7 @@ interface Report {
   payouts: { txHash: string; logIndex: number; partner: string; amount: string; blockNumber: number }[]
   partners: { partner: string; accrued: string; paid: string; owed: string }[]
   applications: Application[]
+  holds?: { agentKey: string; rank: number; reason: string | null; partner: string; account: string }[]
 }
 
 interface Autopay { enabled: boolean; lastRunAt: string | null; lastStatus: string | null; lastDetail: string | null }
@@ -46,6 +49,7 @@ const toWei = (s: string) => {
 
 export function PartnersApp() {
   const c = usePartnersCopy()
+  const rules = useLocale().startsWith('zh') ? CONTEST_RULES_ZH : CONTEST_RULES_EN
   const picker = useWalletPicker()
   const { address } = useAccount()
   const { signMessageAsync } = useSignMessage()
@@ -94,6 +98,7 @@ export function PartnersApp() {
       <Panel title={c.title}>
         <div className="flex flex-col gap-3">
           <p className="text-note text-text-secondary">{c.intro}</p>
+          <p className="whitespace-pre-line text-note text-text-tertiary">{rules}</p>
           {address && (!ADMIN_ENABLED || signer.data !== undefined) && (
             <p className="text-note text-text-tertiary">{isAdmin ? c.adminRole : c.partnerRole}</p>
           )}
@@ -115,6 +120,7 @@ export function PartnersApp() {
       {report && (
         <>
           <Applications report={report} admin={isAdmin} busy={busy} run={run} />
+          {isAdmin && <Holds report={report} busy={busy} run={run} />}
           <Links report={report} admin={isAdmin} busy={busy} run={run} />
           {isAdmin && autopay && <AutopayPanel report={report} autopay={autopay} busy={busy} run={run} />}
           <Balances report={report} />
@@ -437,6 +443,109 @@ function AdminForms({ busy, run }: { busy: boolean; run: Run }) {
             <Button label={c.record} onClick={() => void record()} disabled={busy || !txHash} />
           </div>
           <p className="text-note text-text-tertiary">{c.recordNote}</p>
+        </div>
+      </Panel>
+      <ReviewForms busy={busy} run={run} />
+    </>
+  )
+}
+
+function Holds({ report, busy, run }: { report: Report; busy: boolean; run: Run }) {
+  const c = usePartnersCopy()
+  const [reasons, setReasons] = useState<Record<string, string>>({})
+  const holds = report.holds ?? []
+  if (holds.length === 0) return <Panel title={c.holds}><p className="text-note text-text-tertiary">{c.noHolds}</p></Panel>
+  return (
+    <Panel title={c.holds}>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-note">
+          <thead className="text-text-tertiary">
+            <tr>
+              <th className="px-3 py-2">{c.agentKey}</th>
+              <th className="px-3 py-2">{c.reviewReason}</th>
+              <th className="px-3 py-2" />
+            </tr>
+          </thead>
+          <tbody>
+            {holds.map(h => (
+              <tr key={h.agentKey} className="border-t border-border-subtle">
+                <td className="px-3 py-2 font-mono">{h.agentKey}</td>
+                <td className="px-3 py-2">{h.reason ?? '—'}</td>
+                <td className="px-3 py-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      placeholder={c.reviewReason} value={reasons[h.agentKey] ?? ''}
+                      onChange={e => setReasons({ ...reasons, [h.agentKey]: e.target.value })}
+                      className="w-48 rounded-input border border-border-subtle bg-bg-subtle px-2 py-1 text-text-primary"
+                    />
+                    <Button
+                      label={c.disqualify} size="sm" disabled={busy || !(reasons[h.agentKey] ?? '').trim()}
+                      onClick={() => void run({ action: 'reviewContest', agentKey: h.agentKey, decision: 'disqualify', reason: reasons[h.agentKey] ?? '' })}
+                    />
+                    <Button
+                      label={c.clearReview} size="sm" variant="ghost" disabled={busy || !(reasons[h.agentKey] ?? '').trim()}
+                      onClick={() => void run({ action: 'reviewContest', agentKey: h.agentKey, decision: 'clear', reason: reasons[h.agentKey] ?? '' })}
+                    />
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+  )
+}
+
+function ReviewForms({ busy, run }: { busy: boolean; run: Run }) {
+  const c = usePartnersCopy()
+  const [agentKey, setAgentKey] = useState('')
+  const [reasonText, setReasonText] = useState('')
+  const [account, setAccount] = useState('')
+  const [code, setCode] = useState('')
+  const [partner, setPartner] = useState('')
+  const [txHash, setTxHash] = useState('')
+  const [linkReason, setLinkReason] = useState('')
+  const assign = async () => {
+    const ok = await run({
+      action: 'reviewContest', decision: 'assign', agentKey: agentKey.trim(), reason: reasonText.trim(),
+      account: account.trim(), code: code.trim().toLowerCase(), partner: partner.trim(),
+    })
+    if (ok) { setAgentKey(''); setReasonText(''); setAccount(''); setCode(''); setPartner('') }
+  }
+  const link = async () => {
+    const ok = await run({
+      action: 'linkContestSettlement', agentKey: agentKey.trim(), txHash: txHash.trim(), reason: linkReason.trim(),
+    })
+    if (ok) { setTxHash(''); setLinkReason('') }
+  }
+  return (
+    <>
+      <Panel title={c.assign}>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-end gap-3">
+            <Field label={c.agentKey} value={agentKey} onChange={setAgentKey} />
+            <Field label={c.mintAccount} value={account} onChange={setAccount} />
+            <Field label={c.code} value={code} onChange={setCode} />
+            <Field label={c.partner} value={partner} onChange={setPartner} />
+            <Field label={c.reviewReason} value={reasonText} onChange={setReasonText} />
+            <Button
+              label={c.assign} disabled={busy || !agentKey || !account || !code || !partner || !reasonText.trim()}
+              onClick={() => void assign()}
+            />
+          </div>
+          <p className="text-note text-text-tertiary">{c.reviewReason}</p>
+        </div>
+      </Panel>
+      <Panel title={c.linkSettlement}>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-end gap-3">
+            <Field label={c.agentKey} value={agentKey} onChange={setAgentKey} />
+            <Field label={c.txHash} value={txHash} onChange={setTxHash} />
+            <Field label={c.reviewReason} value={linkReason} onChange={setLinkReason} />
+            <Button label={c.link} disabled={busy || !agentKey || !txHash || !linkReason.trim()} onClick={() => void link()} />
+          </div>
+          <p className="text-note text-text-tertiary">{c.linkSettlementNote}</p>
         </div>
       </Panel>
     </>

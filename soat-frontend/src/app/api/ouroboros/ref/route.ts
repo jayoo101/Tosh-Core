@@ -12,8 +12,8 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { applyRateLimit, readJsonBody } from '@/app/lib/apiGuard'
 import { autopayState } from '@/app/lib/ouroAutopay'
 import {
-  approveApplication, approvePayout, applyForLink, createLink, isSafeSigner, parseRefAction,
-  recordPayout, RefError, refReport, rejectApplication, setBonus, verifyRefSigner,
+  approveApplication, approvePayout, applyForLink, createLink, isSafeSigner, linkContestSettlement,
+  parseRefAction, recordPayout, RefError, refReport, rejectApplication, reviewContest, setBonus, verifyRefSigner,
 } from '@/app/lib/ouroRef'
 import { SupabaseAdminUnavailable } from '@/app/lib/supabaseAdmin'
 import { reportError } from '@/lib/observability'
@@ -53,6 +53,8 @@ export async function POST(req: NextRequest) {
     else if (request.action === 'approvePayout') await approvePayout(request, signer, body.issuedAt as number)
     else if (request.action === 'approveApplication') await approveApplication(request, signer)
     else if (request.action === 'rejectApplication') await rejectApplication(request, signer)
+    else if (request.action === 'reviewContest') await reviewContest(request, signer)
+    else if (request.action === 'linkContestSettlement') await linkContestSettlement(request, signer)
     if (request.action !== 'list') console.log(`[ouro-ref] ${request.action} by ${signer}`)
 
     const [report, autopay] = await Promise.all([refReport(), autopayState()])

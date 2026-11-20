@@ -42,6 +42,10 @@ describe('referral requests', () => {
     expect(parseRefAction({ action: 'rejectApplication', id: 3, reason: 'dup' }))
       .toEqual({ action: 'rejectApplication', id: 3, reason: 'dup' })
     expect(() => parseRefAction({ action: 'approveApplication', id: 0 })).toThrow(RefError)
+    expect(parseRefAction({ action: 'reviewContest', agentKey: '0xABC', decision: 'hold', reason: ' look ' }))
+      .toEqual({ action: 'reviewContest', agentKey: '0xabc', decision: 'hold', reason: 'look' })
+    expect(() => parseRefAction({ action: 'reviewContest', agentKey: '0xabc', decision: 'assign', reason: 'x' })).toThrow(RefError)
+    expect(() => parseRefAction({ action: 'linkContestSettlement', agentKey: 'a', txHash: '0x12', reason: 'x' })).toThrow(RefError)
   })
 
   it('accepts the signer of the exact request', async () => {

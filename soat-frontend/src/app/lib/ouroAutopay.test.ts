@@ -72,6 +72,10 @@ vi.mock('@/app/lib/ouroRef', () => ({
 }))
 
 vi.mock('@/app/lib/ouroIndexer', () => ({ ouroIndexStaleness: async () => state.stale }))
+vi.mock('@/app/lib/ouroContest', () => ({
+  syncContestAwards: async () => 0,
+  settleContestTransfers: async () => 0,
+}))
 
 import { runAutopay } from './ouroAutopay'
 
