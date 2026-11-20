@@ -139,19 +139,20 @@ function ApplyForm({ busy, run }: { busy: boolean; run: Run }) {
   const [code, setCode] = useState('')
   const [label, setLabel] = useState('')
   const [copied, setCopied] = useState(false)
-  const [live, setLive] = useState(false)
+  const [liveCode, setLiveCode] = useState<string | null>(null)
   const normalized = code.trim().toLowerCase()
   const inviteUrl = typeof window !== 'undefined' && /^[a-z0-9]{3,16}$/.test(normalized)
     ? `${window.location.origin}/ouroboros?ref=${normalized}`
     : null
+  const live = inviteUrl != null && liveCode === normalized
 
   useEffect(() => {
-    if (!inviteUrl) { setLive(false); return }
+    if (!inviteUrl) return
     let cancelled = false
     void fetch(`/api/ouroboros/ref/check?code=${normalized}`)
       .then(r => r.ok ? r.json() : null)
       .then((body: { registered?: boolean } | null) => {
-        if (!cancelled && body?.registered) setLive(true)
+        if (!cancelled && body?.registered) setLiveCode(normalized)
       })
       .catch(() => {})
     return () => { cancelled = true }

@@ -41,8 +41,7 @@ export function InviteContestPanel() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
-  const [status, setStatus] = useState<LinkStatus>('none')
-  const [rejectReason, setRejectReason] = useState<string | null>(null)
+  const [record, setRecord] = useState<{ code: string; status: LinkStatus; reason: string | null } | null>(null)
 
   const normalized = code.trim().toLowerCase()
   const valid = isRefCode(normalized)
@@ -50,16 +49,22 @@ export function InviteContestPanel() {
     if (!valid || typeof window === 'undefined') return null
     return `${window.location.origin}/ouroboros?ref=${normalized}`
   }, [valid, normalized])
+  const shown = valid && record?.code === normalized ? record : null
+  const status: LinkStatus = shown?.status ?? 'none'
+  const rejectReason = shown?.reason ?? null
+  const remember = (next: LinkStatus, reason: string | null = null) => {
+    setRecord({ code: normalized, status: next, reason })
+  }
 
   useEffect(() => {
-    if (!valid) { setStatus('none'); setRejectReason(null); return }
+    if (!valid) return
     let cancelled = false
     const tick = async () => {
       try {
         const r = await fetch(`/api/ouroboros/ref/check?code=${normalized}`)
         if (!r.ok || cancelled) return
         const body = await r.json() as { registered?: boolean }
-        if (body.registered) { setStatus('live'); setRejectReason(null) }
+        if (body.registered) setRecord({ code: normalized, status: 'live', reason: null })
       } catch { /* ignore */ }
     }
     void tick()
@@ -90,9 +95,9 @@ export function InviteContestPanel() {
         setMessage(null)
         return
       }
-      if (mine.status === 'approved') { setStatus('live'); setRejectReason(null) }
-      else if (mine.status === 'pending') { setStatus('pending'); setRejectReason(null) }
-      else if (mine.status === 'rejected') { setStatus('rejected'); setRejectReason(mine.rejectReason) }
+      if (mine.status === 'approved') remember('live')
+      else if (mine.status === 'pending') remember('pending')
+      else if (mine.status === 'rejected') remember('rejected', mine.rejectReason)
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err))
     } finally {
@@ -115,7 +120,7 @@ export function InviteContestPanel() {
       })
       const body = await res.json()
       if (!res.ok) throw new Error(body.error ?? res.statusText)
-      setStatus('pending')
+      remember('pending')
       setMessage(c.inviteApplied)
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err))
