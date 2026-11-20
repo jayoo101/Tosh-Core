@@ -12,7 +12,7 @@ const ZH = {
     ['链接生效计奖', '通过后链接立即有效，被邀请 Agent ID 铸满 30 份即计奖。'],
   ] as [string, string][],
   recordsTitle: '我的记录',
-  recordsNote: '连接钱包并签名后，可查看自己的申请状态、已通过链接和奖励结余。',
+  recordsNote: '连接钱包后，签名即可查看自己的申请状态、已通过链接和奖励结余。',
   adminTitle: '审核后台',
   codeHint: '3–16 位小写字母或数字',
   codePlaceholder: '例如 alice01',
