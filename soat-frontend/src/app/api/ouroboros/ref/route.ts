@@ -4,19 +4,16 @@
  *   { request: RefAction, issuedAt: number, address, signature }
  *
  * `signature` is the wallet's signature over `refMessage(request, issuedAt)`.
- * `view` returns the signer's own links; every other action needs a signer of
- * the treasury Safe and returns the full report after it is applied.
- *
- * Admin actions run only where `OURO_REF_ADMIN=1` is set, which is meant to be
- * a signer's own machine running the site locally; the public deployment
- * leaves it unset and serves partners their views alone.
+ * `view` / `apply` are public (signed by the wallet). Admin actions need
+ * `OURO_REF_ADMIN=1` and a treasury Safe signer.
  */
 import { NextResponse, type NextRequest } from 'next/server'
 
 import { applyRateLimit, readJsonBody } from '@/app/lib/apiGuard'
 import { autopayState } from '@/app/lib/ouroAutopay'
 import {
-  approvePayout, createLink, isSafeSigner, parseRefAction, recordPayout, RefError, refReport, setBonus, verifyRefSigner,
+  approveApplication, approvePayout, applyForLink, createLink, isSafeSigner, parseRefAction,
+  recordPayout, RefError, refReport, rejectApplication, setBonus, verifyRefSigner,
 } from '@/app/lib/ouroRef'
 import { SupabaseAdminUnavailable } from '@/app/lib/supabaseAdmin'
 import { reportError } from '@/lib/observability'
@@ -40,6 +37,12 @@ export async function POST(req: NextRequest) {
     if (request.action === 'view') {
       return NextResponse.json({ role: 'partner', report: await refReport(signer) }, { headers: PRIVATE })
     }
+    if (request.action === 'apply') {
+      await applyForLink(request, signer)
+      console.log(`[ouro-ref] apply by ${signer}`)
+      return NextResponse.json({ role: 'applicant', report: await refReport(signer) }, { headers: PRIVATE })
+    }
+
     if (process.env.OURO_REF_ADMIN !== '1') throw new RefError(403, 'referral admin is disabled on this deployment')
     if (!(await isSafeSigner(signer))) throw new RefError(403, 'only a signer of the treasury Safe can do this')
 
@@ -48,6 +51,8 @@ export async function POST(req: NextRequest) {
     else if (request.action === 'setBonus') await setBonus(request, signer)
     else if (request.action === 'recordPayout') recorded = await recordPayout(request, signer)
     else if (request.action === 'approvePayout') await approvePayout(request, signer, body.issuedAt as number)
+    else if (request.action === 'approveApplication') await approveApplication(request, signer)
+    else if (request.action === 'rejectApplication') await rejectApplication(request, signer)
     if (request.action !== 'list') console.log(`[ouro-ref] ${request.action} by ${signer}`)
 
     const [report, autopay] = await Promise.all([refReport(), autopayState()])

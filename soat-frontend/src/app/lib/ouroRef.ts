@@ -13,7 +13,9 @@ import {
 import { assertServerChain, serverPublicClient } from '@/app/lib/serverRpc'
 import { getSupabaseAdmin } from '@/app/lib/supabaseAdmin'
 import { OURO_REF_PAYER, OURO_TREASURY, OURO_USDT } from '@/lib/ouroboros/config'
-import { isRefCode, MAX_REF_BONUS_WEI, REF_SIG_TTL_MS, refMessage, type RefAction } from '@/lib/ouroboros/ref'
+import {
+  isRefCode, MAX_REF_BONUS_WEI, REF_SIG_TTL_MS, refMessage, SEASON_REF_BONUS_WEI, type RefAction,
+} from '@/lib/ouroboros/ref'
 
 const SAFE_ABI = parseAbi(['function isOwner(address owner) view returns (bool)'])
 const TRANSFER_ABI = parseAbi(['event Transfer(address indexed from, address indexed to, uint256 value)'])
@@ -41,14 +43,34 @@ export function parseRefAction(v: unknown): RefAction {
     if (!isRefCode(x)) throw new RefError(422, 'code must be 3 to 16 lowercase letters or digits')
     return x
   }
+  const label = (x: unknown) => {
+    if (typeof x !== 'string' || x.length > 64) throw new RefError(422, 'label must be at most 64 characters')
+    return x
+  }
   switch (r.action) {
     case 'list':
     case 'view':
       return { action: r.action }
+    case 'apply':
+      return { action: 'apply', code: code(r.code), label: label(r.label) }
+    case 'approveApplication': {
+      if (typeof r.id !== 'number' || !Number.isInteger(r.id) || r.id < 1) {
+        throw new RefError(422, 'id must be a positive integer')
+      }
+      return { action: 'approveApplication', id: r.id }
+    }
+    case 'rejectApplication': {
+      if (typeof r.id !== 'number' || !Number.isInteger(r.id) || r.id < 1) {
+        throw new RefError(422, 'id must be a positive integer')
+      }
+      if (typeof r.reason !== 'string' || r.reason.length > 200) {
+        throw new RefError(422, 'reason must be at most 200 characters')
+      }
+      return { action: 'rejectApplication', id: r.id, reason: r.reason }
+    }
     case 'createLink': {
       if (typeof r.partner !== 'string' || !isAddress(r.partner)) throw new RefError(422, 'partner must be an address')
-      if (typeof r.label !== 'string' || r.label.length > 64) throw new RefError(422, 'label must be at most 64 characters')
-      return { action: 'createLink', code: code(r.code), partner: lower(r.partner), label: r.label, bonus: bonus(r.bonus) }
+      return { action: 'createLink', code: code(r.code), partner: lower(r.partner), label: label(r.label), bonus: bonus(r.bonus) }
     }
     case 'setBonus':
       return { action: 'setBonus', code: code(r.code), bonus: bonus(r.bonus) }
@@ -113,7 +135,14 @@ export interface RefLink {
 }
 export interface RefPayout { txHash: string; logIndex: number; partner: string; amount: string; blockNumber: number }
 export interface RefPartner { partner: string; accrued: string; paid: string; owed: string }
-export interface RefReport { links: RefLink[]; payouts: RefPayout[]; partners: RefPartner[] }
+export interface RefApplication {
+  id: number; code: string; partner: string; label: string
+  status: 'pending' | 'approved' | 'rejected'
+  appliedAt: string; reviewedAt: string | null; rejectReason: string | null
+}
+export interface RefReport {
+  links: RefLink[]; payouts: RefPayout[]; partners: RefPartner[]; applications: RefApplication[]
+}
 
 /** PostgREST caps a response at 1,000 rows; reads stay under it a page at a time. */
 const PAGE = 500
@@ -132,6 +161,32 @@ async function allRows<T>(what: string, page: (from: number, to: number) => Rang
     rows.push(...got)
     if (got.length < PAGE) return rows
   }
+}
+
+type AppRow = {
+  id: number; code: string; partner: string; label: string; status: string
+  applied_at: string; reviewed_at: string | null; reject_reason: string | null
+}
+
+function mapApplication(r: AppRow): RefApplication {
+  return {
+    id: r.id, code: r.code, partner: r.partner, label: r.label,
+    status: r.status as RefApplication['status'],
+    appliedAt: r.applied_at, reviewedAt: r.reviewed_at, rejectReason: r.reject_reason,
+  }
+}
+
+/** Pending applications (admin), or one wallet's applications (partner). */
+export async function listApplications(partner?: string): Promise<RefApplication[]> {
+  const who = partner ? lower(partner) : undefined
+  let q = db().from('ouro_ref_applications')
+    .select('id, code, partner, label, status, applied_at, reviewed_at, reject_reason')
+    .order('applied_at', { ascending: false })
+  if (who) q = q.eq('partner', who)
+  else q = q.eq('status', 'pending')
+  const { data, error } = await q.limit(PAGE)
+  check(error, 'applications')
+  return ((data ?? []) as AppRow[]).map(mapApplication)
 }
 
 /** Links, payouts and per-partner balances; every partner when `partner` is undefined. */
@@ -167,8 +222,8 @@ export async function refReport(partner?: string): Promise<RefReport> {
     .order('block_number', { ascending: false }).order('log_index', { ascending: false })
   if (who) payouts = payouts.eq('partner', who)
 
-  const [linkRows, partners, p] = await Promise.all([
-    allRows<LinkRow>('links', links), balances(), payouts.range(0, REPORT_PAYOUTS - 1),
+  const [linkRows, partners, p, applications] = await Promise.all([
+    allRows<LinkRow>('links', links), balances(), payouts.range(0, REPORT_PAYOUTS - 1), listApplications(who),
   ])
   check(p.error, 'payouts')
   const payRows = (p.data ?? []) as unknown as PayRow[]
@@ -182,6 +237,7 @@ export async function refReport(partner?: string): Promise<RefReport> {
       txHash: r.tx_hash, logIndex: r.log_index, partner: r.partner, amount: r.amount, blockNumber: r.block_number,
     })),
     partners,
+    applications,
   }
 }
 
@@ -194,6 +250,54 @@ export async function createLink(r: Extract<RefAction, { action: 'createLink' }>
     .insert({ code: r.code, partner: r.partner, label: r.label, created_by: lower(by) })
   check(error, 'link')
   await setBonus({ action: 'setBonus', code: r.code, bonus: r.bonus }, by)
+}
+
+/** Wallet applies for a partner invite code; the signer is the payout address. */
+export async function applyForLink(r: Extract<RefAction, { action: 'apply' }>, by: Address) {
+  const partner = lower(by)
+  const { data: link, error: linkErr } = await db().from('ouro_ref_links').select('code').eq('code', r.code).maybeSingle()
+  check(linkErr, 'link')
+  if (link) throw new RefError(409, `code ${r.code} is already taken`)
+  const { error } = await db().from('ouro_ref_applications').insert({
+    code: r.code, partner, label: r.label, status: 'pending',
+  })
+  check(error, 'application')
+}
+
+/** Approves a pending application and opens the link at the season reward. */
+export async function approveApplication(r: Extract<RefAction, { action: 'approveApplication' }>, by: Address) {
+  const { data, error } = await db().from('ouro_ref_applications')
+    .select('id, code, partner, label, status')
+    .eq('id', r.id).maybeSingle()
+  check(error, 'application')
+  if (!data) throw new RefError(404, `no application ${r.id}`)
+  const row = data as { id: number; code: string; partner: string; label: string; status: string }
+  if (row.status !== 'pending') throw new RefError(409, `application ${r.id} is ${row.status}`)
+  await createLink(
+    { action: 'createLink', code: row.code, partner: row.partner, label: row.label, bonus: SEASON_REF_BONUS_WEI },
+    by,
+  )
+  const { error: updErr } = await db().from('ouro_ref_applications').update({
+    status: 'approved', reviewed_at: new Date().toISOString(), reviewed_by: lower(by), reject_reason: null,
+  }).eq('id', r.id).eq('status', 'pending')
+  check(updErr, 'application')
+}
+
+export async function rejectApplication(r: Extract<RefAction, { action: 'rejectApplication' }>, by: Address) {
+  const { data, error } = await db().from('ouro_ref_applications')
+    .select('id, status').eq('id', r.id).maybeSingle()
+  check(error, 'application')
+  if (!data) throw new RefError(404, `no application ${r.id}`)
+  if ((data as { status: string }).status !== 'pending') {
+    throw new RefError(409, `application ${r.id} is ${(data as { status: string }).status}`)
+  }
+  const { error: updErr } = await db().from('ouro_ref_applications').update({
+    status: 'rejected',
+    reviewed_at: new Date().toISOString(),
+    reviewed_by: lower(by),
+    reject_reason: r.reason.trim() || null,
+  }).eq('id', r.id).eq('status', 'pending')
+  check(updErr, 'application')
 }
 
 /** Sets the amount paid for each Agent ID that fills, from the current block on. */

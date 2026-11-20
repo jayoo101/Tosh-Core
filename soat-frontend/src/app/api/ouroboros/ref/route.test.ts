@@ -9,8 +9,11 @@ vi.mock('@/app/lib/ouroRef', async importOriginal => ({
   ...(await importOriginal<typeof import('@/app/lib/ouroRef')>()),
   verifyRefSigner: async () => '0x00000000000000000000000000000000000000aa',
   isSafeSigner: async () => true,
-  refReport: async () => ({ links: [], payouts: [], partners: [] }),
+  refReport: async () => ({ links: [], payouts: [], partners: [], applications: [] }),
   setBonus: vi.fn(async () => {}),
+  applyForLink: vi.fn(async () => {}),
+  approveApplication: vi.fn(async () => {}),
+  rejectApplication: vi.fn(async () => {}),
 }))
 
 vi.mock('@/app/lib/ouroAutopay', () => ({
@@ -37,6 +40,13 @@ describe('referral admin switch', () => {
     const res = await call({ action: 'view' })
     expect(res.status).toBe(200)
     expect((await res.json()).role).toBe('partner')
+  })
+
+  it('lets anyone apply without the admin switch', async () => {
+    vi.stubEnv('OURO_REF_ADMIN', '')
+    const res = await call({ action: 'apply', code: 'abc', label: 'hi' })
+    expect(res.status).toBe(200)
+    expect((await res.json()).role).toBe('applicant')
   })
 
   it('applies admin actions where it is enabled', async () => {

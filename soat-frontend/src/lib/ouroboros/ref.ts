@@ -16,7 +16,22 @@ export const REF_CODE_RE = /^[a-z0-9]{3,16}$/
 /** Most a partner link can be paid for one full Agent ID: 10,000 USDT, in wei (18 decimals). */
 export const MAX_REF_BONUS_WEI = 10_000n * 10n ** 18n
 
+/** Invite-contest season reward: 5 USDT per full Agent ID, in wei. */
+export const SEASON_REF_BONUS_WEI = (5n * 10n ** 18n).toString()
+
 export const isRefCode = (s: unknown): s is string => typeof s === 'string' && REF_CODE_RE.test(s)
+
+const REF_CODE_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789'
+
+/** A random code for a new partner link (default 8 chars; length must be 3–16). */
+export function randomRefCode(length = 8): string {
+  if (length < 3 || length > 16) throw new Error(`referral code length must be 3–16, got ${length}`)
+  const bytes = new Uint8Array(length)
+  crypto.getRandomValues(bytes)
+  let out = ''
+  for (const b of bytes) out += REF_CODE_ALPHABET[b % REF_CODE_ALPHABET.length]!
+  return out
+}
 
 export function encodeRefCode(code: string | undefined): Hex {
   if (code === undefined) return zeroHash
@@ -39,6 +54,11 @@ export const REF_SIG_TTL_MS = 10 * 60_000
 export type RefAction =
   | { action: 'list' }
   | { action: 'view' }
+  /** Public: wallet applies for a partner code; payout address is the signer. */
+  | { action: 'apply'; code: string; label: string }
+  /** Admin: activate a pending application with the season reward. */
+  | { action: 'approveApplication'; id: number }
+  | { action: 'rejectApplication'; id: number; reason: string }
   /** `bonus` is USDT wei, a decimal string. */
   | { action: 'createLink'; code: string; partner: string; label: string; bonus: string }
   | { action: 'setBonus'; code: string; bonus: string }

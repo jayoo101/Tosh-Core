@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { parseAbi, parseUnits } from 'viem'
 import { useAccount, useReadContract, useSignMessage } from 'wagmi'
 
@@ -10,7 +10,7 @@ import { useWalletPicker } from '@/components/WalletPicker'
 import { TARGET_CHAIN_ID } from '@/lib/contracts'
 import { AUTOPAY_LIMITS } from '@/lib/ouroboros/autopayPlan'
 import { OURO_REF_PAYER, OURO_TREASURY } from '@/lib/ouroboros/config'
-import { MAX_REF_BONUS_WEI, refMessage, type RefAction } from '@/lib/ouroboros/ref'
+import { MAX_REF_BONUS_WEI, randomRefCode, refMessage, type RefAction } from '@/lib/ouroboros/ref'
 
 import { Field } from './BidBookPanel'
 import { fmt } from './fmt'
@@ -20,10 +20,17 @@ const SAFE_ABI = parseAbi(['function isOwner(address owner) view returns (bool)'
 /** Set only where the admin API is enabled (`OURO_REF_ADMIN`), i.e. a signer's local run. */
 const ADMIN_ENABLED = process.env.NEXT_PUBLIC_OURO_REF_ADMIN === '1'
 
+interface Application {
+  id: number; code: string; partner: string; label: string
+  status: 'pending' | 'approved' | 'rejected'
+  appliedAt: string; reviewedAt: string | null; rejectReason: string | null
+}
+
 interface Report {
   links: { code: string; partner: string; label: string; bonus: string | null; accounts: number; volume: string; accrued: string }[]
   payouts: { txHash: string; logIndex: number; partner: string; amount: string; blockNumber: number }[]
   partners: { partner: string; accrued: string; paid: string; owed: string }[]
+  applications: Application[]
 }
 
 interface Autopay { enabled: boolean; lastRunAt: string | null; lastStatus: string | null; lastDetail: string | null }
@@ -72,6 +79,7 @@ export function PartnersApp() {
       if (!res.ok) throw new Error(body.error ?? res.statusText)
       setFetched({ by: address, report: body.report, autopay: body.autopay ?? null })
       if (typeof body.recorded === 'number') setMessage(c.recorded(body.recorded))
+      if (request.action === 'apply') setMessage(c.applyOk)
       return true
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err))
@@ -102,8 +110,11 @@ export function PartnersApp() {
         </div>
       </Panel>
 
+      {address && <ApplyForm busy={busy} run={run} />}
+
       {report && (
         <>
+          <Applications report={report} admin={isAdmin} busy={busy} run={run} />
           <Links report={report} admin={isAdmin} busy={busy} run={run} />
           {isAdmin && autopay && <AutopayPanel report={report} autopay={autopay} busy={busy} run={run} />}
           <Balances report={report} />
@@ -116,6 +127,129 @@ export function PartnersApp() {
 }
 
 type Run = (request: RefAction) => Promise<boolean | undefined>
+
+function ApplyForm({ busy, run }: { busy: boolean; run: Run }) {
+  const c = usePartnersCopy()
+  const [code, setCode] = useState('')
+  const [label, setLabel] = useState('')
+  const [copied, setCopied] = useState(false)
+  const [live, setLive] = useState(false)
+  const normalized = code.trim().toLowerCase()
+  const inviteUrl = typeof window !== 'undefined' && /^[a-z0-9]{3,16}$/.test(normalized)
+    ? `${window.location.origin}/ouroboros?ref=${normalized}`
+    : null
+
+  useEffect(() => {
+    if (!inviteUrl) { setLive(false); return }
+    let cancelled = false
+    void fetch(`/api/ouroboros/ref/check?code=${normalized}`)
+      .then(r => r.ok ? r.json() : null)
+      .then((body: { registered?: boolean } | null) => {
+        if (!cancelled && body?.registered) setLive(true)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [inviteUrl, normalized])
+
+  return (
+    <Panel title={c.applyTitle}>
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label={c.code} value={code} onChange={setCode} />
+          <Button label={c.randomCode} onClick={() => setCode(randomRefCode())} disabled={busy} />
+          <Field label={c.label} value={label} onChange={setLabel} />
+          <Button
+            label={busy ? c.signing : c.applySubmit}
+            onClick={() => void run({ action: 'apply', code: normalized, label: label.trim() })}
+            disabled={busy || !inviteUrl}
+          />
+        </div>
+        {inviteUrl && (
+          <div className="flex flex-col gap-2 rounded-input border border-border-subtle bg-bg-subtle px-3 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-label uppercase text-text-tertiary">{c.url}</span>
+              <span className={`text-note ${live ? 'text-brand' : 'text-text-secondary'}`}>
+                {live ? c.linkLive : c.linkPending}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <code className="min-w-0 flex-1 break-all font-mono text-note">{inviteUrl}</code>
+              <Button
+                label={copied ? c.copied : c.copy} size="sm"
+                onClick={() => void navigator.clipboard.writeText(inviteUrl).then(() => {
+                  setCopied(true)
+                  setTimeout(() => setCopied(false), 1500)
+                })}
+              />
+            </div>
+          </div>
+        )}
+        <p className="text-note text-text-tertiary">{c.applyNote}</p>
+      </div>
+    </Panel>
+  )
+}
+
+function Applications({ report, admin, busy, run }: { report: Report; admin: boolean; busy: boolean; run: Run }) {
+  const c = usePartnersCopy()
+  const [reasons, setReasons] = useState<Record<number, string>>({})
+  const apps = report.applications
+  const title = admin ? c.applications : c.myApplications
+  if (apps.length === 0) {
+    return admin
+      ? <Panel title={title}><p className="text-note text-text-tertiary">{c.noApplications}</p></Panel>
+      : null
+  }
+  return (
+    <Panel title={title}>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-note">
+          <thead className="text-text-tertiary">
+            <tr>
+              <th className="px-3 py-2">{c.code}</th>
+              {admin && <th className="px-3 py-2">{c.partner}</th>}
+              <th className="px-3 py-2">{c.label}</th>
+              <th className="px-3 py-2">{c.appState}</th>
+              {admin && <th className="px-3 py-2" />}
+            </tr>
+          </thead>
+          <tbody>
+            {apps.map(a => (
+              <tr key={a.id} className="border-t border-border-subtle">
+                <td className="px-3 py-2 font-mono">{a.code}</td>
+                {admin && <td className="px-3 py-2 font-mono"><AddressLink value={a.partner} /></td>}
+                <td className="px-3 py-2">{a.label || '—'}</td>
+                <td className="px-3 py-2">
+                  {c.appStatus[a.status]}
+                  {a.status === 'rejected' && a.rejectReason ? ` · ${a.rejectReason}` : ''}
+                </td>
+                {admin && a.status === 'pending' && (
+                  <td className="px-3 py-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        label={c.approveApp} size="sm" disabled={busy}
+                        onClick={() => void run({ action: 'approveApplication', id: a.id })}
+                      />
+                      <input
+                        placeholder={c.rejectReason} value={reasons[a.id] ?? ''}
+                        onChange={e => setReasons({ ...reasons, [a.id]: e.target.value })}
+                        className="w-40 rounded-input border border-border-subtle bg-bg-subtle px-2 py-1 text-text-primary"
+                      />
+                      <Button
+                        label={c.rejectApp} size="sm" variant="ghost" disabled={busy}
+                        onClick={() => void run({ action: 'rejectApplication', id: a.id, reason: reasons[a.id] ?? '' })}
+                      />
+                    </div>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+  )
+}
 
 function Links({ report, admin, busy, run }: { report: Report; admin: boolean; busy: boolean; run: Run }) {
   const c = usePartnersCopy()
@@ -268,14 +402,14 @@ function AdminForms({ busy, run }: { busy: boolean; run: Run }) {
   const [code, setCode] = useState('')
   const [partner, setPartner] = useState('')
   const [label, setLabel] = useState('')
-  const [bonus, setBonus] = useState('')
+  const [bonus, setBonus] = useState('5')
   const [txHash, setTxHash] = useState('')
   const wei = toWei(bonus)
 
   const create = async () => {
     if (wei === undefined) return
     const ok = await run({ action: 'createLink', code: code.trim().toLowerCase(), partner: partner.trim(), label: label.trim(), bonus: wei })
-    if (ok) { setCode(''); setPartner(''); setLabel(''); setBonus('') }
+    if (ok) { setCode(''); setPartner(''); setLabel(''); setBonus('5') }
   }
   const record = async () => {
     if (await run({ action: 'recordPayout', txHash: txHash.trim() })) setTxHash('')
@@ -287,6 +421,7 @@ function AdminForms({ busy, run }: { busy: boolean; run: Run }) {
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-end gap-3">
             <Field label={c.code} value={code} onChange={setCode} />
+            <Button label={c.randomCode} onClick={() => setCode(randomRefCode())} disabled={busy} />
             <Field label={c.partner} value={partner} onChange={setPartner} />
             <Field label={c.label} value={label} onChange={setLabel} />
             <Field label={`${c.bonus} (USDT)`} value={bonus} onChange={setBonus} />

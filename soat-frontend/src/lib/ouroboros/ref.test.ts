@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { stringToHex, zeroHash } from 'viem'
 
-import { decodeRefCode, encodeRefCode, isRefCode, refMessage } from './ref'
+import { decodeRefCode, encodeRefCode, isRefCode, randomRefCode, refMessage, SEASON_REF_BONUS_WEI } from './ref'
 
 describe('ouroboros referral code', () => {
   it('round-trips a code through the mint argument', () => {
@@ -27,6 +27,20 @@ describe('ouroboros referral code', () => {
     expect(isRefCode('Alpha')).toBe(false)
     expect(isRefCode('a-b-c')).toBe(false)
     expect(() => encodeRefCode('NO')).toThrow()
+  })
+
+  it('randomRefCode makes a valid assigned code', () => {
+    const a = randomRefCode()
+    const b = randomRefCode(16)
+    expect(isRefCode(a)).toBe(true)
+    expect(a).toHaveLength(8)
+    expect(isRefCode(b)).toBe(true)
+    expect(b).toHaveLength(16)
+    expect(() => randomRefCode(2)).toThrow()
+  })
+
+  it('season reward is 5 USDT in wei', () => {
+    expect(SEASON_REF_BONUS_WEI).toBe('5000000000000000000')
   })
 
   it('signs the same text whatever the field order', () => {

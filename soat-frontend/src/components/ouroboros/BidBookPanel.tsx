@@ -14,6 +14,7 @@ import { OURO_BIDBOOK, OURO_MINT, OURO_TOKEN, OURO_USDT } from '@/lib/ouroboros/
 
 import { useOuroCopy } from './copy'
 import { fmt, fmtCompact, fmtPrice, parseAmount } from './fmt'
+import { InviteContestPanel } from './InviteContestPanel'
 import type { OuroUser } from './useOuro'
 
 const ONE = 10n ** 18n
@@ -147,13 +148,18 @@ export function BidBookPanel({ open, user, address, onDone }: {
   const depthUsdt = levels.reduce((s, l) => s + l.usdtLeft, 0n)
   const best = levels[0]?.price
 
-  if (!open && myBids.length === 0) return null
+  if (!open && myBids.length === 0) {
+    return <InviteContestPanel />
+  }
 
   if (!open) {
     return (
       <Panel title={c.bookTitle}>
         <p className="text-note text-text-secondary">{c.bookClosed}</p>
         <MyBids bids={myBids} onDone={done} />
+        <div className="mt-4">
+          <InviteContestPanel />
+        </div>
       </Panel>
     )
   }
@@ -178,6 +184,8 @@ export function BidBookPanel({ open, user, address, onDone }: {
           </div>
         ))}
       </dl>
+
+      <InviteContestPanel />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]">
         <DepthTable levels={levels} />
